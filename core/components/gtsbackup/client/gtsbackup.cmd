@@ -1,12 +1,7 @@
 @echo off
-rem gtsBackup client. Help: gtsbackup.cmd help
-rem Needs PHP 7.4+ with curl and zlib. php.exe is taken from: env GTSBACKUP_PHP,
-rem php.path next to this file (written by "add" / "task"), php\php.exe next to this file, php from PATH.
+rem gtsBackup client for Windows 10 (1803+) / 11. Help: gtsbackup.cmd help
+rem Nothing to install: PowerShell, curl.exe and tar.exe are built into Windows.
 setlocal
 chcp 65001 >nul
-set "GB_DIR=%~dp0"
-if not defined GTSBACKUP_PHP if exist "%GB_DIR%php.path" set /p GTSBACKUP_PHP=<"%GB_DIR%php.path"
-if not defined GTSBACKUP_PHP if exist "%GB_DIR%php\php.exe" set "GTSBACKUP_PHP=%GB_DIR%php\php.exe"
-if not defined GTSBACKUP_PHP set "GTSBACKUP_PHP=php"
-"%GTSBACKUP_PHP%" -d memory_limit=1024M -d max_execution_time=0 "%GB_DIR%gtsbackup.php" %*
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0gtsbackup.ps1" %*
 exit /b %ERRORLEVEL%

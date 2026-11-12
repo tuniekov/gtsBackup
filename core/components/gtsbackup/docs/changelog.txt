@@ -1,3 +1,10 @@
+gtsBackup 1.1.0-beta
+- Клиент для Windows на PowerShell (gtsbackup.ps1): ничего ставить не нужно — встроенные PowerShell 5.1,
+  curl.exe, tar.exe; задача — Register-ScheduledTask. gtsbackup.php остаётся для Linux/macOS, конфиг и папки общие.
+- Архив — POSIX pax: имена не из ASCII и длинные — в расширенном заголовке (UTF-8), русские имена правильно
+  разворачивают tar.exe и 7-Zip. Клиенты читают и архивы 1.0 (GNU LongLink).
+- ping.roots — список {prefix, path} (ключ '' не разбирает PowerShell 5.1).
+
 gtsBackup 1.0.1-beta
 - Клиент перенесён в пакет: core/components/gtsbackup/client/, описание протокола — core/components/gtsbackup/client/protocol.md.
 - Клиент не выполняется через веб (только командная строка).

@@ -1,17 +1,19 @@
 <?php
 /**
- * gtsBackup — клиент на локальном компьютере. Забирает бекап с сайта по HTTP/HTTPS (curl),
- * хранит полные и дифференциальные бекапы, крутит ротацию, проверяет и восстанавливает.
+ * gtsBackup — клиент для Linux/macOS: забирает бекап с сайта по HTTP/HTTPS (curl), хранит полные
+ * и дифференциальные бекапы, крутит ротацию, проверяет и восстанавливает.
+ * В Windows ставить PHP не нужно — там клиент gtsbackup.ps1 (запуск gtsbackup.cmd) с теми же командами,
+ * настройками (gtsbackup.json) и папками бекапов.
  *
  * Поставляется в пакете: core/components/gtsbackup/client/ — папку копируют на компьютер для бекапов.
- * Запуск — через gtsbackup.cmd (Windows) или php gtsbackup.php (Linux, macOS). Команды: help
+ * Запуск — php gtsbackup.php <команда>, расписание — cron: php gtsbackup.php scheduled. Команды: help
  * Обмен с сайтом — core/components/gtsbackup/client/protocol.md. PHP 7.4+, расширения curl и zlib.
  */
 
 // Только командная строка: на сайте файл лежит в core и через веб ничего делать не должен.
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 
-const GB_CLIENT_VERSION = '1.0.1';
+const GB_CLIENT_VERSION = '1.1.0';
 const GB_PROTOCOL = 1;
 
 error_reporting(E_ALL);
@@ -931,7 +933,11 @@ function roots_text($d)
 {
     if (!empty($d['roots'])) {
         $p = [];
-        foreach ($d['roots'] as $prefix => $path) $p[] = $prefix === '' ? "корень {$path}" : "core {$path} (в архиве {$prefix})";
+        foreach ($d['roots'] as $k => $r) {
+            // список [{prefix, path}] (1.1+) или карта prefix => path (1.0.1)
+            list($prefix, $path) = is_array($r) ? [$r['prefix'], $r['path']] : [$k, $r];
+            $p[] = $prefix === '' ? "корень {$path}" : "core {$path} (в архиве {$prefix})";
+        }
         return implode(' + ', $p);
     }
     return implode(', ', array_map(function ($x) { return $x === '' ? 'корень сайта' : $x; }, isset($d['sources']) ? $d['sources'] : []));
@@ -1077,6 +1083,7 @@ function tar_walk($file, $dest)
     if (!$h) throw new RuntimeException("Не открыть {$file}");
     $count = 0;
     $long = null;
+    $pax = null;
     while (true) {
         $hdr = gz_read_exact($h, 512);
         if (strlen($hdr) < 512) {
@@ -1097,12 +1104,23 @@ function tar_walk($file, $dest)
         $type = $hdr[156];
         $pad = (512 - $size % 512) % 512;
 
-        if ($type === 'L') {
+        if ($type === 'L') { // GNU: длинное имя (архивы gtsBackup 1.0.0)
             $long = rtrim(gz_read_exact($h, $size), "\0");
             gz_read_exact($h, $pad);
             continue;
         }
+        if ($type === 'x' || $type === 'g') { // pax: path= / size= для следующей записи; g — глобальный, пропускаем
+            $data = gz_read_exact($h, $size);
+            gz_read_exact($h, $pad);
+            if ($type === 'x') $pax = pax_parse($data);
+            continue;
+        }
         if ($long !== null) { $name = $long; $long = null; }
+        if (!empty($pax)) {
+            if (isset($pax['path'])) $name = $pax['path'];
+            if (isset($pax['size'])) { $size = (int)$pax['size']; $pad = (512 - $size % 512) % 512; }
+            $pax = null;
+        }
         if ($type === '5') { // пустая папка
             $count++;
             if ($dest !== null && ($p = safe_path($dest, rtrim($name, '/'))) && !is_dir($p)) mkdir($p, 0755, true);
@@ -1135,6 +1153,21 @@ function tar_walk($file, $dest)
     }
     gzclose($h);
     return $count;
+}
+
+/** Записи pax «<длина> ключ=значение\n» → [ключ => значение]. */
+function pax_parse($data)
+{
+    $out = [];
+    $pos = 0;
+    while ($pos < strlen($data) && preg_match('/^(\d+) /', substr($data, $pos, 24), $m)) {
+        $rec = substr($data, $pos + strlen($m[0]), (int)$m[1] - strlen($m[0]) - 1);
+        $eq = strpos($rec, '=');
+        if ($eq !== false) $out[substr($rec, 0, $eq)] = substr($rec, $eq + 1);
+        $pos += (int)$m[1];
+        if ((int)$m[1] <= 0) break;
+    }
+    return $out;
 }
 
 function gz_skip($h, $n)

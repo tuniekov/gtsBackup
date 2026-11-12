@@ -13,7 +13,7 @@
  */
 class gtsBackup
 {
-    const VERSION = '1.0.1';
+    const VERSION = '1.1.0';
     const PROTOCOL = 1;
 
     /** @var modX */
@@ -164,7 +164,7 @@ class gtsBackup
         $zipFile = tempnam(sys_get_temp_dir(), 'gtsbc');
         $zip = new ZipArchive();
         $zip->open($zipFile, ZipArchive::OVERWRITE);
-        foreach (['gtsbackup.cmd', 'gtsbackup.php', 'gtsbackup.example.json', 'protocol.md'] as $f) {
+        foreach (['gtsbackup.cmd', 'gtsbackup.ps1', 'gtsbackup.php', 'gtsbackup.example.json', 'protocol.md'] as $f) {
             if (file_exists($dir . $f)) $zip->addFile($dir . $f, 'gtsBackup/' . $f);
         }
         $readme = $this->config['corePath'] . 'docs/readme.txt';
@@ -282,7 +282,10 @@ class gtsBackup
             'token' => $this->token->get('name'),
             'php' => PHP_VERSION,
             'sources' => array_keys($this->sources()),
-            'roots' => $this->sources(), // что бекапится: префикс в архиве => папка на сервере
+            // что бекапится: [{prefix — префикс в архиве ('' — корень), path — папка на сервере}];
+            // списком, а не картой: ключ '' не разбирает ConvertFrom-Json в PowerShell 5.1
+            'roots' => array_map(function ($prefix, $path) { return ['prefix' => $prefix, 'path' => $path]; },
+                array_keys($this->sources()), array_values($this->sources())),
             'step_time' => $this->stepTime(),
             'db_method' => $this->dbMethod(),
             'https' => $this->isHttps(),
@@ -686,25 +689,42 @@ class gtsBackup
         ];
     }
 
-    /** Заголовок tar (GNU): длинные имена — через ././@LongLink, размер > 8 ГБ — base-256. */
+    /**
+     * Заголовок tar (POSIX pax). Имя не ASCII или длиннее 99 байт и размер ≥ 8 ГБ — в расширенном
+     * заголовке «x» (path=, size=): там имя по стандарту в UTF-8, поэтому Windows tar.exe, 7-Zip и GNU tar
+     * разворачивают русские имена правильно (имя в обычном заголовке они читают в кодировке системы).
+     */
     protected function tarHeader($name, $size, $mtime, $type = '0')
     {
-        $out = '';
-        if (strlen($name) > 99) {
-            $data = $name . "\0";
-            $out .= $this->tarHeaderRaw('././@LongLink', strlen($data), 0, 'L');
-            $out .= $data . str_repeat("\0", (512 - strlen($data) % 512) % 512);
-            $name = substr($name, 0, 99);
+        $pax = '';
+        $short = $name;
+        if (strlen($name) > 99 || preg_match('/[^\x20-\x7E]/', $name)) {
+            $pax .= $this->paxRecord('path', $name);
+            $short = substr(preg_replace('/[^\x20-\x7E]/', '_', $name), -99);
         }
-        return $out . $this->tarHeaderRaw($name, $size, $mtime, $type);
+        if ($size >= 8589934591) $pax .= $this->paxRecord('size', (string)$size);
+        $out = '';
+        if ($pax !== '') {
+            $out .= $this->tarHeaderRaw('PaxHeader/' . substr(basename($short), 0, 80), strlen($pax), $mtime, 'x');
+            $out .= $pax . str_repeat("\0", (512 - strlen($pax) % 512) % 512);
+        }
+        return $out . $this->tarHeaderRaw($short, $size, $mtime, $type);
+    }
+
+    /** Запись pax: «<длина> ключ=значение\n», длина считается вместе со своими цифрами. */
+    protected function paxRecord($key, $value)
+    {
+        $body = ' ' . $key . '=' . $value . "\n";
+        $len = strlen($body) + 1;
+        while (strlen($len . $body) !== $len) $len = strlen($len . $body);
+        return $len . $body;
     }
 
     protected function tarHeaderRaw($name, $size, $mtime, $type)
     {
         $mode = $type === '5' ? "0000755\0" : "0000644\0";
-        $sizeField = $size < 8589934591
-            ? sprintf('%011o', $size) . "\0"
-            : chr(0x80) . "\0\0\0" . pack('J', $size);
+        // ≥ 8 ГБ: настоящий размер — в pax size=, в поле — 0 (поле вмещает только 11 восьмеричных цифр)
+        $sizeField = sprintf('%011o', $size < 8589934591 ? $size : 0) . "\0";
         $h = str_pad($name, 100, "\0")
             . $mode . "0000000\0" . "0000000\0"
             . $sizeField
@@ -712,7 +732,7 @@ class gtsBackup
             . '        '
             . $type
             . str_repeat("\0", 100)
-            . "ustar  \0"
+            . "ustar\0" . '00'
             . str_repeat("\0", 32 + 32 + 8 + 8 + 155);
         $h = str_pad($h, 512, "\0");
         $sum = 0;

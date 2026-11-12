@@ -1,7 +1,7 @@
 # gtsBackup
 
 Бекап сайта MODX на локальный компьютер. Сайт по токену собирает полный или дифференциальный архив
-файлов (tar.gz) и отдаёт дамп базы. Клиент забирает бекапы по HTTP/HTTPS (PHP curl), проверяет их,
+файлов (tar.gz) и отдаёт дамп базы. Клиент забирает бекапы по HTTP/HTTPS, проверяет их,
 хранит и сам удаляет старые (ротация).
 
 ## Быстрый старт
@@ -19,7 +19,6 @@
    Команда:
    - проверит связь и покажет, какая папка сайта бекапится;
    - запишет все настройки сайта в его блок `sites.mysite` в `gtsbackup.json`;
-   - запомнит php.exe (`php.path`);
    - **сама** поставит задачу «gtsBackup» от текущего пользователя (если её ещё нет);
    - снимет первый полный бекап.
 5. `gtsbackup.cmd list` — что снято и что будет дальше; `gtsbackup.cmd check` — нет ли пропусков.
@@ -89,7 +88,7 @@ D:\Backups\mysite\
 
 | Путь в пакете | Что это |
 |---|---|
-| [`core/components/gtsbackup/client/`](core/components/gtsbackup/client/) | **клиент**: `gtsbackup.cmd` (Windows), `gtsbackup.php`, пример настроек `gtsbackup.example.json` и [`protocol.md`](core/components/gtsbackup/client/protocol.md) — **описание протокола** обмена с сайтом. Папку целиком копируют на компьютер для бекапов |
+| [`core/components/gtsbackup/client/`](core/components/gtsbackup/client/) | **клиент**: `gtsbackup.cmd` + `gtsbackup.ps1` (Windows, ничего ставить не нужно), `gtsbackup.php` (Linux/macOS), пример настроек `gtsbackup.example.json` и [`protocol.md`](core/components/gtsbackup/client/protocol.md) — **описание протокола** обмена с сайтом. Папку целиком копируют на компьютер для бекапов |
 | [`core/components/gtsbackup/docs/readme.txt`](core/components/gtsbackup/docs/readme.txt) | краткая инструкция покупателю (показывается при установке) |
 | `core/components/gtsbackup/model/` | сервис `gtsBackup` и схема таблиц `gtsbackup_tokens`, `gtsbackup_log` |
 | `assets/components/gtsbackup/action.php` | эндпоинт, на который ходит клиент |
@@ -134,9 +133,18 @@ D:\Backups\mysite\
 
 ## Компьютер с бекапами
 
-Нужен PHP 7.4+ с расширениями `curl` и `zlib`. В Windows `gtsbackup.cmd` ищет php.exe так:
-переменная `GTSBACKUP_PHP`, потом `php.path` (пишет `add`/`task`), потом `php\php.exe` рядом с клиентом,
-потом `php` из PATH. В Linux/macOS — `php gtsbackup.php …`, расписание — cron.
+**Windows 10 (1803+) / 11 — ставить ничего не нужно.** `gtsbackup.cmd` запускает `gtsbackup.ps1`
+(PowerShell 5.1, `-ExecutionPolicy Bypass`). Клиент пользуется только встроенным:
+- `curl.exe` — HTTP/HTTPS, докачка (`-C -`), загрузка манифеста. Токен передаётся через файл заголовков
+  (`-H @файл`), а не в командной строке;
+- `tar.exe` — проверка архива (`-tzf`) и восстановление (`-xzf`);
+- задачу ставит `Register-ScheduledTask`.
+
+HTTPS идёт через Schannel и хранилище сертификатов Windows. Если сеть не пускает к спискам отзыва
+сертификатов, поставьте у сайта `"ssl_no_revoke": true`.
+
+**Linux / macOS** — тот же клиент на PHP: `php gtsbackup.php …` (PHP 7.4+, curl, zlib), расписание — cron
+(`php gtsbackup.php scheduled`). Оба клиента используют один формат `gtsbackup.json` и одну раскладку папок.
 
 ```bat
 gtsbackup.cmd list                                  &rem цепочки, сколько хранится, что дальше
