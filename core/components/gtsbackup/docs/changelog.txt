@@ -1,4 +1,5 @@
 gtsBackup 1.1.3-beta
+- Инструкция: gtsAPI ставится из modstore до gtsBackup (иначе установщик MODX остановится на зависимостях).
 - В исключения по умолчанию — core/packages/_gtsdeploy_backup/ (дампы базы gtsDeploy). На уже установленных
   сайтах дописывается один раз при первом запросе клиента (gtsbackup_settings_v = 2).
 
