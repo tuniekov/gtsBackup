@@ -76,18 +76,24 @@ function cmd_help()
     echo <<<TXT
 gtsBackup client {$GLOBALS['CONFIG_FILE']}
 
-  gtsbackup add <имя> <адрес> <токен> [--dest=D:\\Backups]
-        добавить сайт. Адрес — https://site.ru или полный .../assets/components/gtsbackup/action.php
+  БЫСТРЫЙ СТАРТ (консоль от администратора, в папке клиента):
+  gtsbackup add <имя> <адрес> <токен> --dest=D:\\Backups --time=03:30 [--now]
+        подключить сайт, проверить связь и поставить ежедневный бекап всех сайтов в Планировщик.
+        --now — сразу снять первый (полный) бекап. Адрес — https://site.ru или .../action.php
+
   gtsbackup sites                         список сайтов из конфига
   gtsbackup ping <имя>                    проверить связь и токен
   gtsbackup backup <имя|all> [auto|full|diff] [--no-files] [--no-db]
         снять бекап. auto: полный, если его нет, он старше full_every_days
-        или накопилось max_diff дифференциальных; иначе дифференциальный
-  gtsbackup list <имя>                    бекапы сайта
-  gtsbackup rotate <имя|all>              только ротация
-  gtsbackup verify <имя> <бекап>          прочитать архив и дамп до конца
-  gtsbackup restore <имя> <бекап> <папка> развернуть файлы (полный + дифференциальный) и положить дамп
-  gtsbackup task <имя|all> <ЧЧ:ММ>        задача в Планировщике Windows: ежедневный backup auto
+        или от него уже max_diff дифференциальных; иначе дифференциальный от последнего полного
+  gtsbackup list [имя|all]                цепочки «полный → его дифференциальные», сколько хранится, что дальше
+  gtsbackup rotate [имя|all]              только ротация
+  gtsbackup verify <имя> <номер>          прочитать архив и дамп до конца
+  gtsbackup restore <имя> <номер> <папка> развернуть файлы (для дифф. — свой полный + он) и положить дамп
+  gtsbackup task [имя|all] <ЧЧ:ММ>        задача в Планировщике Windows: ежедневный backup auto
+
+Номер бекапа — время его снятия, например 20261113-033000 (см. list).
+Папки: <dest>\\<сайт>\\<время полного>\\full и рядом diff-<время> — дифференциальные этого полного.
 
 Настройки — gtsbackup.json рядом со скриптом (или переменная GTSBACKUP_CONFIG).
 Код выхода: 0 — успех, 1 — ошибка.
@@ -152,9 +158,20 @@ function cmd_add($args, $opts)
     $c['sites'][$name] = $site;
     if (empty($c['defaults'])) $c['defaults'] = new stdClass();
     cfg_save($c);
+    save_php_path();
     echo "Сайт «{$name}» записан в {$GLOBALS['CONFIG_FILE']}\n";
     if (stripos($url, 'http://') === 0) echo "⚠ HTTP: токен и бекап идут открытым текстом. Используйте только в своей сети.\n";
-    return cmd_ping([$name]);
+    cmd_ping([$name]);
+    $s = site_cfg($name);
+    echo "Бекапы: {$s['dir']}\n";
+    if (!empty($opts['time']) && $opts['time'] !== true) install_task('all', $opts['time']);
+    if (!empty($opts['now'])) {
+        echo "\nПервый бекап…\n";
+        backup_site($name, 'auto', $opts);
+    } elseif (empty($opts['time'])) {
+        echo "\nДальше: gtsbackup.cmd task 03:30 — ежедневный бекап, или gtsbackup.cmd backup {$name} — снять сейчас.\n";
+    }
+    return 0;
 }
 
 function cmd_sites()
@@ -195,6 +212,16 @@ function cmd_backup($args, $opts)
     return $fail ? 1 : 0;
 }
 
+/**
+ * Хранение (папка сайта <dest>/<сайт>/):
+ *   20261112-033000/                 цепочка — имя = время полного бекапа
+ *       full/                        полный: files.tar.gz, manifest.jsonl.gz, db.sql.gz, info.json
+ *       diff-20261113-033000/        дифференциальный от этого полного
+ *       diff-20261114-033000/
+ *   db-only/20261115-120000/         бекапы «только база» (--no-files)
+ *   .part-…/                         собирается сейчас (или упал — удалится при следующем запуске)
+ * Какой дифференциальный от какого полного — видно по папке.
+ */
 function backup_site($name, $mode, $opts)
 {
     $s = site_cfg($name);
@@ -210,29 +237,31 @@ function backup_site($name, $mode, $opts)
     gb_log("[{$name}] сайт {$ping['data']['http_host']}, токен «{$ping['data']['token']}»");
 
     $type = 'db';
-    $base = null;
+    $chain = null;
     if ($withFiles) {
-        $type = $mode === 'auto' ? choose_mode($s, $base) : $mode;
-        if ($type === 'diff' && !$base) {
-            $base = last_full($s);
-            if (!$base) { gb_log("[{$name}] полного бекапа нет — делаю полный"); $type = 'full'; }
+        if ($mode === 'auto') {
+            list($type, $why) = choose_mode($s, $chain);
+            gb_log("[{$name}] режим auto: {$why}");
+        } else {
+            $type = $mode;
+            $chain = last_chain($s);
+            if ($type === 'diff' && !$chain) { gb_log("[{$name}] полного бекапа нет — делаю полный"); $type = 'full'; }
         }
     }
 
     $stamp = date('Ymd-His');
-    $folder = $stamp . '-' . $type;
-    $part = $s['dir'] . $folder . '.part/';
+    $part = $s['dir'] . '.part-' . $stamp . '/';
     mkdir($part, 0750, true);
     $info = [
-        'type' => $type, 'created' => date('c'), 'site' => $ping['data']['http_host'],
+        'type' => $type, 'id' => $stamp, 'created' => date('c'), 'site' => $ping['data']['http_host'],
         'client' => GB_CLIENT_VERSION, 'files' => null, 'db' => null,
     ];
 
     try {
         if ($withFiles) {
-            gb_log("[{$name}] файлы: " . ($type === 'full' ? 'полный' : 'дифференциальный от ' . $base['folder']));
-            $info['files'] = backup_files($s, $type, $base, $part);
-            if ($type === 'diff') $info['base'] = $base['folder'];
+            gb_log("[{$name}] файлы: " . ($type === 'full' ? 'полный' : 'дифференциальный от полного ' . $chain['id']));
+            $info['files'] = backup_files($s, $type, $type === 'diff' ? $chain['full'] : null, $part);
+            if ($type === 'diff') $info['base'] = $chain['id'];
         }
         if ($withDb) {
             gb_log("[{$name}] база: дамп…");
@@ -246,23 +275,40 @@ function backup_site($name, $mode, $opts)
     $info['status'] = 'ok';
     $info['seconds'] = round(microtime(true) - $t0);
     file_put_contents($part . 'info.json', json_encode($info, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-    if (!rename(rtrim($part, '/'), $s['dir'] . $folder)) throw new RuntimeException("Не переименовать {$part}");
-    gb_log("[{$name}] готово: {$folder}, " . human(dir_size($s['dir'] . $folder)) . ", {$info['seconds']} с");
+
+    if ($type === 'full') {
+        mkdir($s['dir'] . $stamp, 0750, true);
+        $dest = $s['dir'] . $stamp . '/full';
+    } elseif ($type === 'diff') {
+        $dest = $s['dir'] . $chain['id'] . '/diff-' . $stamp;
+    } else {
+        if (!is_dir($s['dir'] . 'db-only')) mkdir($s['dir'] . 'db-only', 0750, true);
+        $dest = $s['dir'] . 'db-only/' . $stamp;
+    }
+    if (!rename(rtrim($part, '/'), $dest)) throw new RuntimeException("Не переименовать {$part} в {$dest}");
+    $rel = substr($dest, strlen($s['dir']));
+    gb_log("[{$name}] готово: {$rel}, " . human(dir_size($dest)) . ", {$info['seconds']} с");
 
     rotate($s);
 }
 
-/** auto: полный, если нет полного, он старше full_every_days или дифференциальных уже max_diff. */
-function choose_mode($s, &$base)
+/**
+ * auto: полный — если полного нет, он старше full_every_days или от него уже max_diff дифференциальных.
+ * Возвращает [тип, почему]; $chain — последняя цепочка.
+ */
+function choose_mode($s, &$chain)
 {
-    $base = last_full($s);
-    if (!$base) return 'full';
-    $age = (time() - strtotime($base['info']['created'])) / 86400;
-    if ($s['full_every_days'] > 0 && $age >= $s['full_every_days']) return 'full';
-    $diffs = 0;
-    foreach (list_backups($s) as $b) if ($b['info']['type'] === 'diff' && isset($b['info']['base']) && $b['info']['base'] === $base['folder']) $diffs++;
-    if ($s['max_diff'] >= 0 && $diffs >= $s['max_diff']) return 'full';
-    return 'diff';
+    $chain = last_chain($s);
+    if (!$chain) return ['full', 'полного бекапа ещё нет — полный'];
+    $age = (time() - strtotime($chain['full']['info']['created'])) / 86400;
+    if ($s['full_every_days'] > 0 && $age >= $s['full_every_days']) {
+        return ['full', 'последнему полному ' . floor($age) . ' дн. (full_every_days = ' . $s['full_every_days'] . ') — полный'];
+    }
+    $n = count($chain['diffs']);
+    if ($s['max_diff'] >= 0 && $n >= $s['max_diff']) {
+        return ['full', "от полного {$chain['id']} уже {$n} дифф. (max_diff = {$s['max_diff']}) — полный"];
+    }
+    return ['diff', 'дифференциальный ' . ($n + 1) . " из {$s['max_diff']} от полного {$chain['id']}"];
 }
 
 function backup_files($s, $type, $base, $part)
@@ -287,7 +333,7 @@ function backup_files($s, $type, $base, $part)
             $r = api($s, 'step', ['job' => $job]);
             $p = $r['data'];
             if (time() - $last >= 10 || $p['done']) {
-                $pct = $p['bytes_total'] > 0 ? round($p['bytes_done'] * 100 / $p['bytes_total']) : 100;
+                $pct = $p['done'] ? 100 : ($p['bytes_total'] > 0 ? min(99, floor($p['bytes_done'] * 100 / $p['bytes_total'])) : 0);
                 gb_log("[{$s['name']}]   {$pct}% — {$p['files_done']}/{$p['files_total']} файлов, архив " . human($p['archive_size']));
                 $last = time();
             }
@@ -343,95 +389,166 @@ function backup_db($s, $part)
     return ['bytes' => $size, 'method' => $method];
 }
 
-/** Незаконченные папки .part от упавших запусков. */
+/** Незаконченные папки .part-… от упавших запусков. */
 function cleanup_parts($s)
 {
-    foreach ((array)glob($s['dir'] . '*.part', GLOB_ONLYDIR) as $d) {
+    foreach ((array)glob($s['dir'] . '.part-*', GLOB_ONLYDIR) as $d) {
         gb_log("[{$s['name']}] удаляю незаконченный " . basename($d));
         rrmdir($d);
     }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Список и ротация
+//  Цепочки, список и ротация
 // ════════════════════════════════════════════════════════════════════════════
 
-/** Готовые бекапы сайта, старые первыми. */
-function list_backups($s)
+function read_info($dir)
+{
+    $info = json_decode((string)@file_get_contents($dir . '/info.json'), true);
+    return ($info && (isset($info['status']) ? $info['status'] : '') === 'ok') ? $info : null;
+}
+
+/**
+ * Цепочки сайта, старые первыми: [id, path, full => бекап|null, diffs => [бекап…]].
+ * Бекап: [id, type, path, info].
+ */
+function chains($s)
 {
     $out = [];
-    foreach ((array)glob($s['dir'] . '*', GLOB_ONLYDIR) as $d) {
-        if (!preg_match('/^\d{8}-\d{6}-(full|diff|db)$/', basename($d))) continue;
-        $info = json_decode((string)@file_get_contents($d . '/info.json'), true);
-        if (!$info || (isset($info['status']) ? $info['status'] : '') !== 'ok') continue;
-        $out[] = ['folder' => basename($d), 'path' => $d . '/', 'info' => $info];
+    foreach ((array)glob($s['dir'] . '*', GLOB_ONLYDIR) as $c) {
+        $id = basename($c);
+        if (!preg_match('/^\d{8}-\d{6}$/', $id)) continue;
+        $full = read_info($c . '/full');
+        $diffs = [];
+        foreach ((array)glob($c . '/diff-*', GLOB_ONLYDIR) as $d) {
+            $did = substr(basename($d), 5);
+            if (!preg_match('/^\d{8}-\d{6}$/', $did) || !($di = read_info($d))) continue;
+            $diffs[] = ['id' => $did, 'type' => 'diff', 'path' => $d . '/', 'info' => $di, 'chain' => $id];
+        }
+        usort($diffs, function ($a, $b) { return strcmp($a['id'], $b['id']); });
+        $out[] = [
+            'id' => $id, 'path' => $c . '/',
+            'full' => $full ? ['id' => $id, 'type' => 'full', 'path' => $c . '/full/', 'info' => $full, 'chain' => $id] : null,
+            'diffs' => $diffs,
+        ];
     }
-    usort($out, function ($a, $b) { return strcmp($a['folder'], $b['folder']); });
+    usort($out, function ($a, $b) { return strcmp($a['id'], $b['id']); });
     return $out;
 }
 
-function last_full($s)
+function db_only($s)
 {
-    $full = null;
-    foreach (list_backups($s) as $b) if ($b['info']['type'] === 'full') $full = $b;
-    return $full;
+    $out = [];
+    foreach ((array)glob($s['dir'] . 'db-only/*', GLOB_ONLYDIR) as $d) {
+        $id = basename($d);
+        if (preg_match('/^\d{8}-\d{6}$/', $id) && ($i = read_info($d))) $out[] = ['id' => $id, 'type' => 'db', 'path' => $d . '/', 'info' => $i];
+    }
+    usort($out, function ($a, $b) { return strcmp($a['id'], $b['id']); });
+    return $out;
+}
+
+/** Последняя цепочка с целым полным бекапом. */
+function last_chain($s)
+{
+    $last = null;
+    foreach (chains($s) as $c) if ($c['full']) $last = $c;
+    return $last;
+}
+
+function fmt_id($id)
+{
+    return preg_replace('/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})\d{2}$/', '$3.$2.$1 $4:$5', $id);
 }
 
 function cmd_list($args)
 {
-    $s = site_cfg(isset($args[0]) ? $args[0] : '');
-    foreach (list_backups($s) as $b) {
-        $i = $b['info'];
-        $f = $i['files'] ? "файлов {$i['files']['count']}" . ($i['type'] === 'diff' ? " (удалено {$i['files']['deleted']}) от {$i['base']}" : '') : '';
-        $db = $i['db'] ? 'база ' . human($i['db']['bytes']) : '';
-        echo str_pad($b['folder'], 24) . str_pad(human(dir_size($b['path'])), 11) . trim($f . '; ' . $db, '; ') . "\n";
+    $names = site_names(isset($args[0]) ? $args[0] : 'all');
+    foreach ($names as $name) {
+        $s = site_cfg($name);
+        $chains = array_values(array_filter(chains($s), function ($c) { return $c['full']; }));
+        $dbs = db_only($s);
+        $total = dir_size_rec($s['dir']);
+        echo "\n{$name} — {$s['dir']}  (всего " . human($total) . ")\n";
+        echo '  хранится цепочек: ' . count($chains) . " из {$s['keep_full']} (keep_full), "
+            . "в цепочке до {$s['max_diff']} дифф. (max_diff), полный не реже раза в {$s['full_every_days']} дн.\n";
+        $tmp = null;
+        list(, $why) = choose_mode($s, $tmp);
+        echo "  следующий запуск auto: {$why}\n\n";
+        foreach ($chains as $c) {
+            $f = $c['full'];
+            echo '  ' . $c['id'] . '  ПОЛНЫЙ   ' . fmt_id($c['id']) . '  ' . str_pad(human(dir_size($f['path'])), 10) . describe($f['info']) . "\n";
+            foreach ($c['diffs'] as $i => $d) {
+                $last = $i === count($c['diffs']) - 1;
+                echo '    ' . ($last ? '└' : '├') . ' ' . $d['id'] . '  дифф   ' . fmt_id($d['id']) . '  ' . str_pad(human(dir_size($d['path'])), 10) . describe($d['info']) . "\n";
+            }
+        }
+        if (!$chains) echo "  бекапов файлов нет\n";
+        if ($dbs) {
+            echo "\n  только база (db-only), хранится " . count($dbs) . " из {$s['keep_db_only']}:\n";
+            foreach ($dbs as $d) echo '    ' . $d['id'] . '  ' . fmt_id($d['id']) . '  ' . human(dir_size($d['path'])) . "\n";
+        }
     }
+    echo "\nВосстановить: gtsbackup restore <сайт> <номер> <пустая папка> — для дифф. сам возьмёт его полный.\n";
     return 0;
+}
+
+function describe($i)
+{
+    $p = [];
+    if (!empty($i['files'])) {
+        $p[] = $i['type'] === 'diff'
+            ? "изменено {$i['files']['count']}, удалено {$i['files']['deleted']}"
+            : "файлов {$i['files']['count']}";
+    }
+    if (!empty($i['db'])) $p[] = 'база ' . human($i['db']['bytes']);
+    return implode(', ', $p);
 }
 
 function cmd_rotate($args)
 {
-    foreach (site_names(isset($args[0]) ? $args[0] : '') as $n) rotate(site_cfg($n));
+    foreach (site_names(isset($args[0]) ? $args[0] : 'all') as $n) rotate(site_cfg($n));
     return 0;
 }
 
 /**
- * Ротация: держим keep_full последних цепочек (полный + его дифференциальные);
- * дифференциальные без своего полного удаляются; «только база» — keep_db_only последних.
+ * Ротация: keep_full последних цепочек (полный + его дифференциальные) — остальные удаляются целиком,
+ * папки цепочек без целого полного — тоже; «только база» — keep_db_only последних.
  */
 function rotate($s)
 {
-    $all = list_backups($s);
-    $fulls = array_values(array_filter($all, function ($b) { return $b['info']['type'] === 'full'; }));
-    $keepFull = max(1, (int)$s['keep_full']);
-    $keepNames = array_map(function ($b) { return $b['folder']; }, array_slice($fulls, -$keepFull));
-    $del = [];
-    foreach ($fulls as $b) if (!in_array($b['folder'], $keepNames, true)) $del[] = $b;
-    foreach ($all as $b) {
-        if ($b['info']['type'] === 'diff' && !in_array(isset($b['info']['base']) ? $b['info']['base'] : '', $keepNames, true)) $del[] = $b;
+    $chains = chains($s);
+    $good = array_values(array_filter($chains, function ($c) { return $c['full']; }));
+    $keep = array_map(function ($c) { return $c['id']; }, array_slice($good, -max(1, (int)$s['keep_full'])));
+    foreach ($chains as $c) {
+        if (in_array($c['id'], $keep, true)) continue;
+        gb_log("[{$s['name']}] ротация: удаляю цепочку {$c['id']} (полный + " . count($c['diffs']) . ' дифф.)');
+        rrmdir(rtrim($c['path'], '/'));
     }
-    $dbs = array_values(array_filter($all, function ($b) { return $b['info']['type'] === 'db'; }));
-    $keepDb = max(0, (int)$s['keep_db_only']);
-    foreach (array_slice($dbs, 0, max(0, count($dbs) - $keepDb)) as $b) $del[] = $b;
-    foreach ($del as $b) {
-        gb_log("[{$s['name']}] ротация: удаляю {$b['folder']}");
+    $dbs = db_only($s);
+    foreach (array_slice($dbs, 0, max(0, count($dbs) - max(0, (int)$s['keep_db_only']))) as $b) {
+        gb_log("[{$s['name']}] ротация: удаляю db-only/{$b['id']}");
         rrmdir(rtrim($b['path'], '/'));
     }
+}
+
+/** Бекап по номеру (время): полный, дифференциальный или db-only. */
+function find_backup($s, $id)
+{
+    foreach (chains($s) as $c) {
+        if ($c['full'] && $c['id'] === $id) return $c['full'];
+        foreach ($c['diffs'] as $d) if ($d['id'] === $id) return $d + ['full' => $c['full']];
+    }
+    foreach (db_only($s) as $d) if ($d['id'] === $id) return $d;
+    gb_die("Бекап {$id} не найден (gtsbackup list {$s['name']})");
 }
 
 // ════════════════════════════════════════════════════════════════════════════
 //  Проверка и восстановление
 // ════════════════════════════════════════════════════════════════════════════
 
-function find_backup($s, $folder)
-{
-    foreach (list_backups($s) as $b) if ($b['folder'] === $folder) return $b;
-    gb_die("Бекап {$folder} не найден (gtsbackup list {$s['name']})");
-}
-
 function cmd_verify($args)
 {
-    if (count($args) < 2) gb_die('gtsbackup verify <имя> <бекап>');
+    if (count($args) < 2) gb_die('gtsbackup verify <имя> <номер>');
     $s = site_cfg($args[0]);
     $b = find_backup($s, $args[1]);
     $ok = true;
@@ -457,22 +574,21 @@ function cmd_verify($args)
  */
 function cmd_restore($args)
 {
-    if (count($args) < 3) gb_die('gtsbackup restore <имя> <бекап> <папка>');
+    if (count($args) < 3) gb_die('gtsbackup restore <имя> <номер> <папка>');
     $s = site_cfg($args[0]);
     $b = find_backup($s, $args[1]);
     $dir = rtrim(str_replace('\\', '/', $args[2]), '/') . '/';
     if (is_dir($dir) && count(scandir($dir)) > 2) gb_die("Папка {$dir} не пустая — разворачиваю только в пустую");
     @mkdir($dir, 0750, true);
 
-    if ($b['info']['files']) {
-        $chain = [$b];
-        if ($b['info']['type'] === 'diff') array_unshift($chain, find_backup($s, $b['info']['base']));
+    if (!empty($b['info']['files'])) {
+        $chain = $b['type'] === 'diff' ? [$b['full'], $b] : [$b];
         foreach ($chain as $c) {
-            echo "разворачиваю {$c['folder']}…\n";
+            echo 'разворачиваю ' . ($c['type'] === 'full' ? 'полный ' : 'дифференциальный ') . "{$c['id']}…\n";
             $n = tar_walk($c['path'] . 'files.tar.gz', $dir);
-            echo "  файлов: {$n}\n";
+            echo "  записей: {$n}\n";
         }
-        if ($b['info']['type'] === 'diff') {
+        if ($b['type'] === 'diff') {
             $meta = manifest_meta($b['path'] . 'manifest.jsonl.gz');
             foreach ($meta['deleted'] as $rel) {
                 $p = safe_path($dir, rtrim($rel, '/'));
@@ -495,16 +611,59 @@ function cmd_restore($args)
 //  Планировщик Windows
 // ════════════════════════════════════════════════════════════════════════════
 
+/** task [имя|all] ЧЧ:ММ — ежедневная задача «backup … auto». */
 function cmd_task($args)
 {
-    if (count($args) < 2 || !preg_match('/^\d{1,2}:\d{2}$/', $args[1])) gb_die('gtsbackup task <имя|all> <ЧЧ:ММ>');
-    if (stripos(PHP_OS, 'WIN') !== 0) gb_die('Только для Windows. На Linux — cron: php gtsbackup.php backup all');
-    $cmdFile = __DIR__ . '\\gtsbackup.cmd';
-    $tn = 'gtsBackup ' . $args[0];
-    $line = 'schtasks /Create /F /SC DAILY /ST ' . $args[1] . ' /TN "' . $tn . '" /TR "\"' . $cmdFile . '\" backup ' . $args[0] . ' auto"';
-    echo $line . "\n";
-    passthru($line, $code);
-    return $code;
+    $time = null;
+    $target = 'all';
+    foreach ($args as $a) {
+        if (preg_match('/^\d{1,2}:\d{2}$/', $a)) $time = $a;
+        else $target = $a;
+    }
+    if (!$time) gb_die('gtsbackup task [имя|all] ЧЧ:ММ');
+    return install_task($target, $time);
+}
+
+/** Запомнить php.exe, которым запущен клиент: Планировщик (SYSTEM) не видит PATH и переменные пользователя. */
+function save_php_path()
+{
+    if (PHP_BINARY) @file_put_contents(__DIR__ . DIRECTORY_SEPARATOR . 'php.path', PHP_BINARY);
+}
+
+function is_windows_admin()
+{
+    exec('net session >nul 2>&1', $o, $code);
+    return $code === 0;
+}
+
+function install_task($target, $time)
+{
+    if (stripos(PHP_OS, 'WIN') !== 0) {
+        echo "Планировщик есть только в Windows. В Linux/macOS добавьте в cron:\n"
+            . '  30 3 * * * ' . PHP_BINARY . ' ' . __FILE__ . " backup all auto\n";
+        return 0;
+    }
+    list($h, $m) = explode(':', $time);
+    $time = sprintf('%02d:%02d', $h, $m);
+    save_php_path();
+    $admin = is_windows_admin();
+    $tn = 'gtsBackup' . ($target === 'all' ? '' : ' ' . $target);
+    $tr = '\"' . __DIR__ . '\gtsbackup.cmd\" backup ' . $target . ' auto';
+    if (strlen($tr) > 261) gb_die('Слишком длинный путь к клиенту для Планировщика — перенесите папку ближе к корню диска, например C:\gtsBackup');
+    $line = 'schtasks /Create /F /SC DAILY /ST ' . $time . ' /TN "' . $tn . '" /TR "' . $tr . '"' . ($admin ? ' /RU SYSTEM /RL HIGHEST' : '');
+    exec($line . ' 2>&1', $out, $code);
+    if ($code !== 0) gb_die('schtasks: ' . trim(implode(' ', $out)));
+    echo "\nЗадача «{$tn}» в Планировщике: каждый день в {$time} — backup {$target} auto.\n";
+    if ($admin) {
+        echo "  Запуск от SYSTEM — работает без входа в Windows. Папка бекапов должна быть на локальном диске\n"
+            . "  (сетевой диск SYSTEM не видит).\n";
+    } else {
+        echo "  ⚠ Консоль не от администратора — задача создана от вашего пользователя и запустится,\n"
+            . "  только когда вы вошли в Windows. Чтобы работала всегда: откройте консоль «от имени\n"
+            . "  администратора» и повторите: gtsbackup.cmd task {$target} {$time}\n";
+    }
+    echo "  Запустить сейчас: schtasks /Run /TN \"{$tn}\"   Лог: <папка бекапов>\\<сайт>\\gtsbackup.log\n";
+    return 0;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -783,6 +942,15 @@ function dir_size($d)
 {
     $t = 0;
     foreach ((array)glob(rtrim($d, '/') . '/*') as $f) $t += is_file($f) ? filesize($f) : 0;
+    return $t;
+}
+
+function dir_size_rec($d)
+{
+    $t = 0;
+    if (!is_dir($d)) return 0;
+    $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($d, FilesystemIterator::SKIP_DOTS));
+    foreach ($it as $f) if ($f->isFile()) $t += $f->getSize();
     return $t;
 }
 

@@ -4,6 +4,55 @@
 файлов (tar.gz) и отдаёт дамп базы. Клиент забирает бекапы по HTTP/HTTPS (PHP curl), проверяет их,
 хранит и сам удаляет старые (ротация).
 
+## Быстрый старт
+
+1. Поставить пакет на сайт.
+2. «Компоненты → Бекапы → Токены → Создать токен» (название — чей компьютер). В окне: ссылка на
+   zip клиента (действует час), готовая команда и сам токен (показывается один раз).
+3. Распаковать zip на компьютере, например в `C:\gtsBackup`.
+4. Консоль **от имени администратора**, в папке клиента — команда из окна, в конец `--now`:
+
+   ```bat
+   gtsbackup.cmd add mysite https://example.com/assets/components/gtsbackup/action.php gbk_… --dest=D:\Backups --time=03:30 --now
+   ```
+
+   Проверит связь, запомнит php.exe (`php.path`), поставит задачу «gtsBackup» в Планировщик
+   (каждый день в 03:30 `backup all auto`, от SYSTEM — без входа в Windows) и снимет первый полный.
+   Не от администратора задача создаётся от пользователя и идёт, только пока он вошёл — клиент об этом пишет.
+5. `gtsbackup.cmd list` — что снято и что будет дальше.
+
+Второй сайт — его команда `add` без `--time`: задача уже бекапит все сайты из конфига.
+
+## Что и сколько хранится
+
+Хранение цепочками — по папкам видно, какой дифференциальный от какого полного:
+
+```
+D:\Backups\mysite\
+    20261112-033000\                 цепочка (имя = время полного)
+        full\                        полный: файлы + база
+        diff-20261113-033000\        дифференциальные ЭТОГО полного: изменения с момента полного + база
+    20261119-033000\
+        full\
+    db-only\…                        только база (--no-files)
+    gtsbackup.log
+```
+
+Дифференциальный всегда считается от полного своей цепочки, поэтому восстановление — ровно два архива.
+`list` показывает дерево цепочек, сколько хранится из скольких и что сделает следующий запуск.
+
+`auto` решает сам: полный, если полного нет, ему `full_every_days` дней или от него уже `max_diff`
+дифференциальных; иначе дифференциальный. По умолчанию при ежедневном запуске:
+
+| Настройка клиента | По умолчанию | Итог |
+|---|---|---|
+| `full_every_days` | 7 | полный раз в неделю |
+| `max_diff` | 6 | 6 дифференциальных между полными |
+| `keep_full` | 4 | 4 цепочки ≈ 4 недели: 4 полных + до 24 дифференциальных |
+| `keep_db_only` | 14 | бекапов «только база» |
+
+Лишние цепочки удаляются целиком после каждого удачного бекапа.
+
 ## Где что лежит
 
 | Путь в пакете | Что это |
@@ -54,26 +103,22 @@
 ## Компьютер с бекапами
 
 Нужен PHP 7.4+ с расширениями `curl` и `zlib`. В Windows `gtsbackup.cmd` ищет php.exe так:
-переменная `GTSBACKUP_PHP`, потом `php\php.exe` рядом с клиентом, потом `php` из PATH.
-В Linux/macOS — `php gtsbackup.php …`, расписание — cron.
+переменная `GTSBACKUP_PHP`, потом `php.path` (пишет `add`/`task`), потом `php\php.exe` рядом с клиентом,
+потом `php` из PATH. В Linux/macOS — `php gtsbackup.php …`, расписание — cron.
 
 ```bat
-rem скопировать core\components\gtsbackup\client\ на компьютер, например в C:\gtsBackup
-gtsbackup.cmd add mysite https://example.com gbk_… --dest=D:\Backups
-gtsbackup.cmd backup mysite            &rem auto: полный или дифференциальный
-gtsbackup.cmd backup all full          &rem все сайты из конфига, принудительно полный
-gtsbackup.cmd list mysite
-gtsbackup.cmd verify mysite 20261112-184424-diff
-gtsbackup.cmd restore mysite 20261112-184424-diff D:\restore\mysite
-gtsbackup.cmd task all 03:30           &rem ежедневно в Планировщике Windows
+gtsbackup.cmd list                                  &rem цепочки, сколько хранится, что дальше
+gtsbackup.cmd backup all                            &rem снять сейчас (auto)
+gtsbackup.cmd backup mysite full                    &rem принудительно полный
+gtsbackup.cmd verify mysite 20261113-033000         &rem номер = время бекапа (из list)
+gtsbackup.cmd restore mysite 20261113-033000 D:\restore\mysite   &rem дифф.: сам возьмёт свой полный
+gtsbackup.cmd task 03:30                            &rem поставить/поменять время задачи
+schtasks /Run /TN gtsBackup                         &rem запустить задачу сейчас
 ```
 
 Ротация и режимы — в `gtsbackup.json` (`defaults` — для всех сайтов, `sites.<имя>` — для одного):
 
-- `keep_full: 4` — цепочек «полный + дифференциальные»;
-- `max_diff: 6` — дифференциальных подряд;
-- `full_every_days: 7`;
-- `keep_db_only: 14`;
+- `keep_full`, `max_diff`, `full_every_days`, `keep_db_only` — см. «Что и сколько хранится»;
 - `files` / `db` — что снимать;
 - `insecure` — самоподписанный сертификат;
 - `cacert` — путь к `cacert.pem`, если в php.ini не задан `curl.cainfo` (частая ошибка HTTPS на Windows).

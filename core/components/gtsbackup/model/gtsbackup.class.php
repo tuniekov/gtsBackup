@@ -59,6 +59,8 @@ class gtsBackup
         switch ($action) {
             case 'create_token':
                 return $this->createToken($data);
+            case 'client_link':
+                return $this->clientLink();
             case 'token_shown':
                 return $this->success('');
         }
@@ -100,19 +102,81 @@ class gtsBackup
             'modal' => [
                 'title' => 'Токен «' . $name . '» — скопируйте сейчас, второй раз он не покажется',
                 'fields' => [
+                    'client_url' => ['label' => '1. Скачать клиент (ссылка действует час) и распаковать, например в C:\gtsBackup', 'type' => 'text'],
+                    'cmd' => ['label' => '2. В той папке, в консоли от администратора: подключить сайт и поставить ежедневный бекап в 03:30', 'type' => 'textarea'],
                     'token' => ['label' => 'Токен', 'type' => 'text'],
-                    'url' => ['label' => 'Адрес сайта', 'type' => 'text'],
-                    'cmd' => ['label' => 'Команда на компьютере с бекапами', 'type' => 'textarea'],
                 ],
                 'values' => [
+                    'client_url' => $this->clientUrl(),
+                    'cmd' => 'gtsbackup.cmd add ' . $site . ' ' . $url . ' ' . $token . ' --dest=D:\Backups --time=03:30',
                     'token' => $token,
-                    'url' => $url,
-                    'cmd' => 'gtsbackup.cmd add ' . $site . ' ' . $url . ' ' . $token,
                 ],
                 'action' => 'gtsbackup/token_shown',
                 'buttons' => ['submit' => ['label' => 'Скопировал', 'icon' => 'pi pi-check']],
             ],
         ]);
+    }
+
+    /** Кнопка «Скачать клиент»: окно со свежей ссылкой на zip клиента. */
+    public function clientLink()
+    {
+        if (!$this->isAdmin()) return $this->error('Клиент скачивает только администратор');
+        return $this->success('', [
+            'modal' => [
+                'title' => 'Клиент gtsBackup',
+                'fields' => [
+                    'client_url' => ['label' => 'Откройте ссылку в браузере (действует час), распакуйте zip, например в C:\gtsBackup', 'type' => 'text'],
+                    'help' => ['label' => 'Дальше', 'type' => 'textarea'],
+                ],
+                'values' => [
+                    'client_url' => $this->clientUrl(),
+                    'help' => "Подключить сайт — команда из окна «Создать токен».\nСправка: gtsbackup.cmd help, файл readme в архиве клиента.",
+                ],
+                'action' => 'gtsbackup/token_shown',
+                'buttons' => ['submit' => ['label' => 'Закрыть', 'icon' => 'pi pi-check']],
+            ],
+        ]);
+    }
+
+    /**
+     * Ссылка на zip клиента: одноразовый ключ на час в кеше MODX. Токен бекапа в ссылку не кладём —
+     * ссылки из браузера попадают в логи и историю.
+     */
+    public function clientUrl()
+    {
+        $key = bin2hex(random_bytes(16));
+        $one = 1; // set() в MODX 2 принимает значение по ссылке
+        $this->modx->cacheManager->set('clientkey_' . $key, $one, 3600, [xPDO::OPT_CACHE_KEY => 'gtsbackup']);
+        return $this->siteUrl() . '?action=client&key=' . $key;
+    }
+
+    /** Отдать папку клиента zip-архивом (без локальных настроек и бекапов, если они там есть). */
+    protected function sendClientZip()
+    {
+        $key = isset($_GET['key']) ? (string)$_GET['key'] : '';
+        if (!preg_match('/^[0-9a-f]{32}$/', $key) || !$this->modx->cacheManager->get('clientkey_' . $key, [xPDO::OPT_CACHE_KEY => 'gtsbackup'])) {
+            return $this->fail(403, 'Ссылка устарела — нажмите «Скачать клиент» в разделе «Бекапы» ещё раз');
+        }
+        if (!class_exists('ZipArchive')) {
+            return $this->fail(500, 'На сервере нет ZipArchive. Заберите папку core/components/gtsbackup/client/ по FTP');
+        }
+        $dir = $this->config['corePath'] . 'client/';
+        $zipFile = tempnam(sys_get_temp_dir(), 'gtsbc');
+        $zip = new ZipArchive();
+        $zip->open($zipFile, ZipArchive::OVERWRITE);
+        foreach (['gtsbackup.cmd', 'gtsbackup.php', 'gtsbackup.example.json', 'protocol.md'] as $f) {
+            if (file_exists($dir . $f)) $zip->addFile($dir . $f, 'gtsBackup/' . $f);
+        }
+        $readme = $this->config['corePath'] . 'docs/readme.txt';
+        if (file_exists($readme)) $zip->addFile($readme, 'gtsBackup/readme.txt');
+        $zip->close();
+        while (ob_get_level()) ob_end_clean();
+        header('Content-Type: application/zip');
+        header('Content-Disposition: attachment; filename="gtsBackup-client-' . self::VERSION . '.zip"');
+        header('Content-Length: ' . filesize($zipFile));
+        readfile($zipFile);
+        @unlink($zipFile);
+        exit;
     }
 
     /** Адрес эндпоинта: схема и хост из site_url + assets_url (сайт может жить в подпапке). */
@@ -133,6 +197,8 @@ class gtsBackup
         $action = isset($_REQUEST['action']) ? (string)$_REQUEST['action'] : '';
 
         if (!$this->opt('enabled', 1)) return $this->fail(403, 'gtsBackup выключен (gtsbackup_enabled)');
+        // zip клиента — по одноразовой ссылке из админки, без токена бекапа
+        if ($action === 'client') return $this->sendClientZip();
         if ($this->opt('require_https', 0) && !$this->isHttps()) return $this->fail(403, 'Только HTTPS (gtsbackup_require_https)');
         $wl = array_filter(array_map('trim', explode(',', (string)$this->opt('ip_whitelist', ''))));
         if ($wl && !in_array($this->ip(), $wl, true)) return $this->fail(403, 'IP ' . $this->ip() . ' не в gtsbackup_ip_whitelist');

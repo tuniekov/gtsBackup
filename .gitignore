@@ -27,3 +27,4 @@ dist-ssr
 core/components/gtsbackup/client/gtsbackup.json
 core/components/gtsbackup/client/backups/
 core/components/gtsbackup/client/php/
+core/components/gtsbackup/client/php.path
