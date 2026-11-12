@@ -13,7 +13,7 @@
 // Только командная строка: на сайте файл лежит в core и через веб ничего делать не должен.
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 
-const GB_CLIENT_VERSION = '1.1.1';
+const GB_CLIENT_VERSION = '1.1.4';
 const GB_PROTOCOL = 1;
 
 error_reporting(E_ALL);
@@ -936,7 +936,7 @@ function roots_text($d)
         foreach ($d['roots'] as $k => $r) {
             // список [{prefix, path}] (1.1+) или карта prefix => path (1.0.1)
             list($prefix, $path) = is_array($r) ? [$r['prefix'], $r['path']] : [$k, $r];
-            $p[] = $prefix === '' ? "корень {$path}" : "core {$path} (в архиве {$prefix})";
+            $p[] = $prefix === '' ? "корень {$path}" : ($prefix === '@core/' ? "core {$path} (в архиве @core/)" : "папка {$path} (в архиве {$prefix})");
         }
         return implode(' + ', $p);
     }

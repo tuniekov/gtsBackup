@@ -5,7 +5,7 @@
 # Обмен с сайтом — protocol.md рядом.
 
 $ErrorActionPreference = 'Stop'
-$Version = '1.1.1'
+$Version = '1.1.4'
 $Protocol = 1
 $TaskName = 'gtsBackup'
 $TaskTimeDefault = '03:30'
@@ -323,7 +323,9 @@ function Roots-Text($d) {
     if ($d -and $d.Contains('roots') -and $d.roots) {
         $p = @()
         foreach ($r in $d.roots) {
-            if ($r.prefix -eq '') { $p += "корень $($r.path)" } else { $p += "core $($r.path) (в архиве $($r.prefix))" }
+            if ($r.prefix -eq '') { $p += "корень $($r.path)" }
+            elseif ($r.prefix -eq '@core/') { $p += "core $($r.path) (в архиве @core/)" }
+            else { $p += "папка $($r.path) (в архиве $($r.prefix))" }
         }
         return $p -join ' + '
     }

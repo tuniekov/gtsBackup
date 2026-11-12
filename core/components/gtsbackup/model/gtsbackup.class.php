@@ -13,7 +13,7 @@
  */
 class gtsBackup
 {
-    const VERSION = '1.1.3';
+    const VERSION = '1.1.4';
     const PROTOCOL = 1;
 
     /** @var modX */
@@ -445,6 +445,19 @@ class gtsBackup
         $src = ['' => $root];
         $core = $this->normDir(MODX_CORE_PATH);
         if (strpos($core, $root) !== 0) $src['@core/'] = $core;
+        // Дополнительные папки вне корня (хранилище файлов, ключи компонентов) — в архиве под @<имя папки>/
+        foreach (preg_split('/[\r\n,]+/', (string)$this->opt('extra_paths', '')) as $p) {
+            $p = trim($p);
+            if ($p === '' || !is_dir($p)) continue;
+            $dir = $this->normDir($p);
+            $inside = false;
+            foreach ($src as $d) if (strpos($dir, $d) === 0) $inside = true; // уже входит в корень или core
+            if ($inside) continue;
+            $name = preg_replace('/[^A-Za-z0-9_.-]+/', '_', basename(rtrim($dir, '/'))) ?: 'extra';
+            $prefix = '@' . $name . '/';
+            for ($i = 2; isset($src[$prefix]); $i++) $prefix = '@' . $name . '-' . $i . '/';
+            $src[$prefix] = $dir;
+        }
         return $src;
     }
 
@@ -490,7 +503,8 @@ class gtsBackup
         $tmp = $this->tmpDir();
         $maxBytes = (float)$this->opt('max_file_mb', 0) * 1048576;
         foreach ($this->sources() as $prefix => $dir) {
-            $relBase = $prefix === '@core/' ? 'core/' : '';
+            // исключения сверяются с путём «как от корня»: core/…, gtsstore_storage/… и т. п.
+            $relBase = $prefix === '' ? '' : substr($prefix, 1);
             $stack = [''];
             while ($stack) {
                 $sub = array_pop($stack);

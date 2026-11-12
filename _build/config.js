@@ -1,7 +1,7 @@
 export default {
     name:"gtsBackup",
     name_lower:"gtsbackup",
-    version:"1.1.3",
+    version:"1.1.4",
     release:"beta",
     schema:true,
     assets:true,
