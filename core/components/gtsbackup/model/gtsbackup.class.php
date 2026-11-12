@@ -8,7 +8,7 @@
  *    собирает архив файлов (полный / дифференциальный) по шагам, скачивает его и
  *    забирает дамп базы потоком.
  *
- * Описание обмена — core/components/gtsbackup/docs/protocol.md,
+ * Описание обмена — core/components/gtsbackup/client/protocol.md,
  * клиент — core/components/gtsbackup/client/. Код совместим с PHP 7.4.
  */
 class gtsBackup

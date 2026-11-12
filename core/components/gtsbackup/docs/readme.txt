@@ -12,8 +12,7 @@ gtsBackup — бекап сайта MODX на ваш компьютер
       gtsbackup.cmd                        запуск в Windows
       gtsbackup.php                        сам клиент (в Linux/macOS: php gtsbackup.php …)
       gtsbackup.example.json               пример настроек клиента
-  core/components/gtsbackup/docs/protocol.md
-                                           описание протокола обмена клиента с сайтом
+      protocol.md                          описание протокола обмена клиента с сайтом
                                            (для своего клиента или интеграции)
   assets/components/gtsbackup/action.php   адрес, на который ходит клиент
 

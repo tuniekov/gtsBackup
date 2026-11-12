@@ -5,7 +5,7 @@
  *
  * Поставляется в пакете: core/components/gtsbackup/client/ — папку копируют на компьютер для бекапов.
  * Запуск — через gtsbackup.cmd (Windows) или php gtsbackup.php (Linux, macOS). Команды: help
- * Обмен с сайтом — core/components/gtsbackup/docs/protocol.md. PHP 7.4+, расширения curl и zlib.
+ * Обмен с сайтом — core/components/gtsbackup/client/protocol.md. PHP 7.4+, расширения curl и zlib.
  */
 
 // Только командная строка: на сайте файл лежит в core и через веб ничего делать не должен.

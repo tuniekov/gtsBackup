@@ -8,15 +8,14 @@
 
 | Путь в пакете | Что это |
 |---|---|
-| [`core/components/gtsbackup/client/`](core/components/gtsbackup/client/) | **клиент**: `gtsbackup.cmd` (Windows), `gtsbackup.php`, пример настроек `gtsbackup.example.json`. Папку копируют на компьютер для бекапов |
-| [`core/components/gtsbackup/docs/protocol.md`](core/components/gtsbackup/docs/protocol.md) | **описание протокола** обмена клиента с сайтом |
+| [`core/components/gtsbackup/client/`](core/components/gtsbackup/client/) | **клиент**: `gtsbackup.cmd` (Windows), `gtsbackup.php`, пример настроек `gtsbackup.example.json` и [`protocol.md`](core/components/gtsbackup/client/protocol.md) — **описание протокола** обмена с сайтом. Папку целиком копируют на компьютер для бекапов |
 | [`core/components/gtsbackup/docs/readme.txt`](core/components/gtsbackup/docs/readme.txt) | краткая инструкция покупателю (показывается при установке) |
 | `core/components/gtsbackup/model/` | сервис `gtsBackup` и схема таблиц `gtsbackup_tokens`, `gtsbackup_log` |
 | `assets/components/gtsbackup/action.php` | эндпоинт, на который ходит клиент |
 | `_build/configs/` | настройки, меню, таблицы gtsAPI, зависимость от gtsAPI |
 
-Клиент и протокол лежат в `core`, поэтому попадают в transport-пакет и на сайте после установки
-оказываются в `core/components/gtsbackup/`. Клиент через веб не выполняется: он работает только
+Клиент вместе с протоколом лежит в `core`, поэтому попадает в transport-пакет и на сайте после
+установки оказывается в `core/components/gtsbackup/client/`. Клиент через веб не выполняется: он работает только
 из командной строки.
 
 ## Сборка

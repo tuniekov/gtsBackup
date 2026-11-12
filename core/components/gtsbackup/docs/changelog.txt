@@ -1,5 +1,5 @@
 gtsBackup 1.0.1-beta
-- Клиент перенесён в пакет: core/components/gtsbackup/client/, описание протокола — core/components/gtsbackup/docs/protocol.md.
+- Клиент перенесён в пакет: core/components/gtsbackup/client/, описание протокола — core/components/gtsbackup/client/protocol.md.
 - Клиент не выполняется через веб (только командная строка).
 - Пакет не создаёт групп ресурсов; исключения по умолчанию без чужих компонентов.
 
