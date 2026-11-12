@@ -5,7 +5,7 @@
 # Обмен с сайтом — protocol.md рядом.
 
 $ErrorActionPreference = 'Stop'
-$Version = '1.1.0'
+$Version = '1.1.1'
 $Protocol = 1
 $TaskName = 'gtsBackup'
 $TaskTimeDefault = '03:30'
@@ -168,7 +168,8 @@ function Site-Names([string]$arg) {
 # ════════════════════════════════════════════════════════════════════════════
 
 function Curl-Args($s, [string]$headerFile) {
-    $a = @('-sS', '--connect-timeout', '30', '-H', "@$headerFile", '-A', "gtsBackup-client-ps/$Version")
+    # --http1.1: за nginx-прокси (proxy_pass на Apache) при HTTP/2 теряется тело ответа
+    $a = @('-sS', '--http1.1', '--connect-timeout', '30', '-H', "@$headerFile", '-A', "gtsBackup-client-ps/$Version")
     if ($s.insecure) { $a += '-k' }
     if ($s.cacert) { $a += @('--cacert', [string]$s.cacert) }
     if ($s.ssl_no_revoke) { $a += '--ssl-no-revoke' }

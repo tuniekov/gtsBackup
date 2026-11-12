@@ -13,7 +13,7 @@
 // Только командная строка: на сайте файл лежит в core и через веб ничего делать не должен.
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 
-const GB_CLIENT_VERSION = '1.1.0';
+const GB_CLIENT_VERSION = '1.1.1';
 const GB_PROTOCOL = 1;
 
 error_reporting(E_ALL);
@@ -956,6 +956,8 @@ function curl_base($s, $url)
         CURLOPT_CONNECTTIMEOUT => 30,
         CURLOPT_TIMEOUT => (int)$s['timeout'],
         CURLOPT_FOLLOWLOCATION => false,
+        // за nginx-прокси (proxy_pass на Apache) при HTTP/2 теряется тело ответа
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
         CURLOPT_SSL_VERIFYPEER => !$s['insecure'],
         CURLOPT_SSL_VERIFYHOST => $s['insecure'] ? 0 : 2,
     ]);

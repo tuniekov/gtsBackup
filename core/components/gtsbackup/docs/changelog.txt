@@ -1,3 +1,7 @@
+gtsBackup 1.1.1-beta
+- Клиенты ходят на сайт по HTTP/1.1: за nginx-прокси на Apache при HTTP/2 терялось тело ответа.
+- Команда в окне токена — без --dest: бекапы в подпапке backups рядом с клиентом.
+
 gtsBackup 1.1.0-beta
 - Клиент для Windows на PowerShell (gtsbackup.ps1): ничего ставить не нужно — встроенные PowerShell 5.1,
   curl.exe, tar.exe; задача — Register-ScheduledTask. gtsbackup.php остаётся для Linux/macOS, конфиг и папки общие.

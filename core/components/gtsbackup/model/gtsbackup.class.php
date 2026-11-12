@@ -13,7 +13,7 @@
  */
 class gtsBackup
 {
-    const VERSION = '1.1.0';
+    const VERSION = '1.1.1';
     const PROTOCOL = 1;
 
     /** @var modX */
@@ -109,8 +109,9 @@ class gtsBackup
                     'token' => ['label' => 'Токен', 'type' => 'text'],
                 ],
                 'values' => [
-                    // без --time: задачу add ставит сам, только если её нет (03:30), и не трогает уже настроенную
-                    'cmd' => 'gtsbackup.cmd add ' . $site . ' ' . $url . ' ' . $token . ' --dest=D:\Backups --now',
+                    // без --time: задачу add ставит сам, только если её нет (03:30), и не трогает уже настроенную;
+                    // без --dest: бекапы — в подпапке backups рядом с клиентом (другая папка — --dest=…)
+                    'cmd' => 'gtsbackup.cmd add ' . $site . ' ' . $url . ' ' . $token . ' --now',
                     'client_url' => $this->clientUrl(),
                     'token' => $token,
                 ],

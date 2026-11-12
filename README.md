@@ -16,11 +16,13 @@
 4. Обычная консоль (права администратора не нужны), в папке клиента — команда из окна как есть:
 
    ```bat
-   gtsbackup.cmd add mysite https://example.com/assets/components/gtsbackup/action.php gbk_… --dest=D:\Backups --now
+   gtsbackup.cmd add mysite https://example.com/assets/components/gtsbackup/action.php gbk_… --now
    ```
 
    Команда:
    - проверит связь и покажет, какая папка сайта бекапится;
+   - бекапы положит в подпапку `backups` рядом с клиентом (`C:\gtsBackup\backups\mysite\`);
+     другая папка — `--dest=D:\Backups`;
    - запишет все настройки сайта в его блок `sites.mysite` в `gtsbackup.json`;
    - поставит задачу «gtsBackup» от текущего пользователя в 03:30 — **только если её ещё нет**.
      У второго сайта задача уже есть: она не трогается и бекапит все сайты из конфига.
