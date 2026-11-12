@@ -1,3 +1,7 @@
+gtsBackup 1.1.3-beta
+- В исключения по умолчанию — core/packages/_gtsdeploy_backup/ (дампы базы gtsDeploy). На уже установленных
+  сайтах дописывается один раз при первом запросе клиента (gtsbackup_settings_v = 2).
+
 gtsBackup 1.1.2-beta
 - Настройка gtsbackup_public_url: адрес для клиента снаружи (сайт за прокси/шлюзом) — его показывает окно токена.
 

@@ -15,6 +15,14 @@ export default {
         'value': '',
         'area': 'gtsbackup_main',
     },
+    // Версия настроек: при обновлении пакета gtsBackup один раз дописывает новые значения по умолчанию
+    // в уже существующие настройки (сборка их не перезаписывает) — см. gtsBackup::migrateSettings.
+    // Ставится 0: миграция сама поднимет до текущей версии при первом запросе клиента. Не править.
+    'settings_v': {
+        'xtype': 'numberfield',
+        'value': 0,
+        'area': 'gtsbackup_main',
+    },
     // Выключатель эндпоинта. 0 — action.php отвечает 403 на всё.
     'enabled': {
         'xtype': 'combo-boolean',
@@ -45,7 +53,7 @@ export default {
     // без «/» внутри — имя на любой глубине (node_modules/, *.tmp). «/» в конце — только папка.
     'exclude': {
         'xtype': 'textarea',
-        'value': "core/cache/\ncore/packages/_gtsbackup/\n.git/\nnode_modules/",
+        'value': "core/cache/\ncore/packages/_gtsbackup/\ncore/packages/_gtsdeploy_backup/\n.git/\nnode_modules/",
         'area': 'gtsbackup_files',
     },
     // Файлы больше этого размера (МБ) пропускаются. 0 — без ограничения.

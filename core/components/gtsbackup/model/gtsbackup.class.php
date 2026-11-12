@@ -13,7 +13,7 @@
  */
 class gtsBackup
 {
-    const VERSION = '1.1.2';
+    const VERSION = '1.1.3';
     const PROTOCOL = 1;
 
     /** @var modX */
@@ -206,6 +206,7 @@ class gtsBackup
     {
         $action = isset($_REQUEST['action']) ? (string)$_REQUEST['action'] : '';
 
+        $this->migrateSettings();
         if (!$this->opt('enabled', 1)) return $this->fail(403, 'gtsBackup выключен (gtsbackup_enabled)');
         // zip клиента — по одноразовой ссылке из админки, без токена бекапа
         if ($action === 'client') return $this->sendClientZip();
@@ -231,6 +232,32 @@ class gtsBackup
             case 'db':       return $this->actDb();         // поток + exit
         }
         return $this->fail(400, 'Неизвестное действие: ' . $action);
+    }
+
+    /**
+     * Сборка не перезаписывает существующие настройки, поэтому новые значения по умолчанию
+     * доезжают до уже установленных сайтов отсюда — один раз, по отметке gtsbackup_settings_v.
+     * v2: в исключения — core/packages/_gtsdeploy_backup/ (дампы базы gtsDeploy).
+     */
+    protected function migrateSettings()
+    {
+        if ((int)$this->opt('settings_v', 0) >= 2) return;
+        $ex = $this->modx->getObject('modSystemSetting', 'gtsbackup_exclude');
+        if ($ex && strpos($ex->get('value'), '_gtsdeploy_backup') === false) {
+            $ex->set('value', rtrim($ex->get('value')) . "\ncore/packages/_gtsdeploy_backup/");
+            $ex->save();
+        }
+        $v = $this->modx->getObject('modSystemSetting', 'gtsbackup_settings_v');
+        if (!$v) {
+            $v = $this->modx->newObject('modSystemSetting');
+            $v->fromArray(['key' => 'gtsbackup_settings_v', 'xtype' => 'numberfield', 'namespace' => 'gtsbackup', 'area' => 'gtsbackup_main'], '', true, true);
+        }
+        $v->set('value', 2);
+        $v->save();
+        $this->modx->cacheManager->refresh(['system_settings' => []]);
+        $this->modx->config['gtsbackup_settings_v'] = 2;
+        if ($ex) $this->modx->config['gtsbackup_exclude'] = $ex->get('value');
+        $this->excludes = null;
     }
 
     protected function fail($code, $message, $data = [])
