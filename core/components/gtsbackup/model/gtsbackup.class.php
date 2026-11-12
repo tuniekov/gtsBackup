@@ -13,7 +13,7 @@
  */
 class gtsBackup
 {
-    const VERSION = '1.1.1';
+    const VERSION = '1.1.2';
     const PROTOCOL = 1;
 
     /** @var modX */
@@ -186,6 +186,12 @@ class gtsBackup
     /** Адрес эндпоинта: схема и хост из site_url + assets_url (сайт может жить в подпапке). */
     public function siteUrl()
     {
+        // сайт за прокси / админка по внутреннему адресу — адрес для клиента снаружи задаётся настройкой
+        $public = trim((string)$this->opt('public_url', ''));
+        if ($public !== '') {
+            if (!preg_match('~\.php$~i', $public)) $public = rtrim($public, '/') . '/assets/components/gtsbackup/action.php';
+            return $public;
+        }
         $p = parse_url((string)$this->modx->getOption('site_url'));
         $base = (isset($p['scheme']) ? $p['scheme'] : 'https') . '://' . (isset($p['host']) ? $p['host'] : '')
             . (isset($p['port']) ? ':' . $p['port'] : '');

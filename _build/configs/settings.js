@@ -7,6 +7,14 @@ export default {
         'value': '{"title":"Бекапы","PVTabs":{"tabs":{"gbToken":{"title":"Токены","table":"gbToken"},"gbLog":{"title":"Журнал","table":"gbLog"}}}}',
         'area': 'gtsbackup_main',
     },
+    // Адрес, по которому клиент ходит на сайт снаружи (сайт за прокси, админка по внутреннему адресу):
+    // https://backup.example.com или полный …/assets/components/gtsbackup/action.php.
+    // Пусто — из адреса сайта. Его показывает окно «Создать токен» и ссылка на клиент.
+    'public_url': {
+        'xtype': 'textfield',
+        'value': '',
+        'area': 'gtsbackup_main',
+    },
     // Выключатель эндпоинта. 0 — action.php отвечает 403 на всё.
     'enabled': {
         'xtype': 'combo-boolean',
