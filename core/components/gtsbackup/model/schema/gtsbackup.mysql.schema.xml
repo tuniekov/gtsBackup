@@ -12,6 +12,7 @@
         <field key="createdon" dbtype="datetime" phptype="datetime" null="true"/>
         <field key="createdby" dbtype="int" precision="10" attributes="unsigned" phptype="integer" null="false" default="0"/>
         <field key="last_used" dbtype="datetime" phptype="datetime" null="true"/>
+        <field key="last_backup" dbtype="datetime" phptype="datetime" null="true"/>
         <field key="last_ip" dbtype="varchar" precision="45" phptype="string" null="false" default=""/>
         <field key="used_count" dbtype="int" precision="10" attributes="unsigned" phptype="integer" null="false" default="0"/>
 

@@ -28,7 +28,7 @@ action=<действие>&…
 
 | action | Параметры | Ответ |
 |---|---|---|
-| `ping` | — | `protocol`, `version`, `site_name`, `http_host`, `token` (имя), `php`, `sources`, `step_time`, `db_method`, `https` |
+| `ping` | — | `protocol`, `version`, `site_name`, `http_host`, `token` (имя), `php`, `sources`, `roots` (префикс в архиве → папка на сервере), `step_time`, `db_method`, `https` |
 | `create` | `mode=full\|diff`; для diff — `base_job` или файл `base` | `job`, `files_total`, `bytes_total`, `files_site`, `deleted`, `warnings`, `step_time` |
 | `step` | `job` | `done`, `files_done/total`, `bytes_done/total`, `archive_size`, `warnings`, `step_warnings[]` |
 | `download` | `job`, `what=files\|manifest` | файл; `Range: bytes=N-` — докачка (`206`), заголовок `X-Gtsbackup-Size` — полный размер |
@@ -121,6 +121,13 @@ create(mode)  →  step … step (пока done = false)  →  download manifest
 
 - **Режим `auto`.** Полный бекап снимается в трёх случаях: полного ещё нет; он старше `full_every_days`;
   от него уже снято `max_diff` дифференциальных. В остальных случаях снимается дифференциальный.
+- **Расписание.** Задача Планировщика «gtsBackup» создаётся от пользователя и запускает `scheduled`:
+  - когда: ежедневно, при входе в Windows и догоняя пропущенный запуск;
+  - что делает: бекапит сайты, у которых удачный бекап старше `min_interval_hours`;
+  - что проверяет: у кого нет удачного бекапа `alert_days` дней — для них показывает окно-предупреждение.
+
+  Сайт отдельно хранит время последнего удачного бекапа по каждому токену (`gtsbackup_tokens.last_backup`).
+  Оно ставится после `finish` готового архива и после дампа, который дошёл до конца.
 - **Хранение — цепочками.** Какой дифференциальный от какого полного, видно по папкам:
 
   ```

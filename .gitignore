@@ -28,3 +28,6 @@ core/components/gtsbackup/client/gtsbackup.json
 core/components/gtsbackup/client/backups/
 core/components/gtsbackup/client/php/
 core/components/gtsbackup/client/php.path
+core/components/gtsbackup/client/gtsbackup-task.vbs
+core/components/gtsbackup/client/gtsbackup-alert.vbs
+core/components/gtsbackup/client/gtsbackup-alert.txt

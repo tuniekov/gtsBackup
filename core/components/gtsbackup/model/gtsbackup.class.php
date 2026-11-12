@@ -103,7 +103,7 @@ class gtsBackup
                 'title' => 'Токен «' . $name . '» — скопируйте сейчас, второй раз он не покажется',
                 'fields' => [
                     'client_url' => ['label' => '1. Скачать клиент (ссылка действует час) и распаковать, например в C:\gtsBackup', 'type' => 'text'],
-                    'cmd' => ['label' => '2. В той папке, в консоли от администратора: подключить сайт и поставить ежедневный бекап в 03:30', 'type' => 'textarea'],
+                    'cmd' => ['label' => '2. В той папке, в обычной консоли (cmd): подключит сайт и сам поставит ежедневный бекап в 03:30. Допишите --now — сразу снимет первый', 'type' => 'textarea'],
                     'token' => ['label' => 'Токен', 'type' => 'text'],
                 ],
                 'values' => [
@@ -264,6 +264,14 @@ class gtsBackup
         if ($stmt) $stmt->execute([date('Y-m-d H:i:s'), $this->ip(), (int)$this->token->get('id')]);
     }
 
+    /** Удачный бекап (архив файлов забран или дамп дошёл до конца) — время в токен. */
+    protected function markBackupOk()
+    {
+        $t = $this->modx->getTableName('gbToken');
+        $stmt = $this->modx->prepare("UPDATE {$t} SET last_backup = ? WHERE id = ?");
+        if ($stmt) $stmt->execute([date('Y-m-d H:i:s'), (int)$this->token->get('id')]);
+    }
+
     public function actPing()
     {
         return $this->success('pong', [
@@ -274,6 +282,7 @@ class gtsBackup
             'token' => $this->token->get('name'),
             'php' => PHP_VERSION,
             'sources' => array_keys($this->sources()),
+            'roots' => $this->sources(), // что бекапится: префикс в архиве => папка на сервере
             'step_time' => $this->stepTime(),
             'db_method' => $this->dbMethod(),
             'https' => $this->isHttps(),
@@ -779,6 +788,7 @@ class gtsBackup
             sort($old);
             foreach (array_slice($old, 0, max(0, count($old) - 3)) as $f) @unlink($f);
         }
+        if (!$cancel && $s['done']) $this->markBackupOk();
         $msg = $s['warnings'] ? 'предупреждений: ' . $s['warnings'] . '; ' . implode('; ', array_slice($s['step_warnings'], 0, 20)) : '';
         $this->updateLog($s['log_id'], [
             'status' => $cancel ? 'cancelled' : ($s['done'] ? 'ok' : 'incomplete'),
@@ -873,6 +883,7 @@ class gtsBackup
         $emit("\n-- gtsBackup-end: " . ($err === '' ? 'ok' : 'error ' . str_replace("\n", ' ', $err)) . "\n");
         echo deflate_add($z, '', ZLIB_FINISH);
         flush();
+        if ($err === '') $this->markBackupOk();
         $this->updateLog($logId, [
             'status' => $err === '' ? 'ok' : 'error', 'size' => $bytes,
             'message' => $err, 'finishedon' => date('Y-m-d H:i:s'),

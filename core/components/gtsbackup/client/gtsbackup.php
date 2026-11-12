@@ -37,7 +37,12 @@ $DEFAULTS = [
     'cacert' => '',           // путь к cacert.pem, если в php.ini не задан curl.cainfo
     'timeout' => 900,         // таймаут одного запроса, сек (шаг, дамп — дольше обычного)
     'retries' => 5,           // повторы при обрыве
+    'alert_days' => 2,        // нет удачного бекапа столько дней — окно-предупреждение (0 — не предупреждать)
+    'min_interval_hours' => 20, // плановый запуск пропускает сайт, если удачный бекап свежее (запуск и по времени, и при входе)
 ];
+
+const GB_TASK = 'gtsBackup';
+const GB_TASK_TIME = '03:30';
 
 // ════════════════════════════════════════════════════════════════════════════
 //  Точка входа
@@ -63,6 +68,8 @@ try {
         case 'verify':  exit(cmd_verify($args));
         case 'restore': exit(cmd_restore($args));
         case 'task':    exit(cmd_task($args));
+        case 'scheduled': exit(cmd_scheduled());
+        case 'check':   exit(cmd_check($opts));
         case 'sites':   exit(cmd_sites());
         default:        exit(cmd_help());
     }
@@ -76,13 +83,17 @@ function cmd_help()
     echo <<<TXT
 gtsBackup client {$GLOBALS['CONFIG_FILE']}
 
-  БЫСТРЫЙ СТАРТ (консоль от администратора, в папке клиента):
-  gtsbackup add <имя> <адрес> <токен> --dest=D:\\Backups --time=03:30 [--now]
-        подключить сайт, проверить связь и поставить ежедневный бекап всех сайтов в Планировщик.
-        --now — сразу снять первый (полный) бекап. Адрес — https://site.ru или .../action.php
+  БЫСТРЫЙ СТАРТ (обычная консоль, в папке клиента):
+  gtsbackup add <имя> <адрес> <токен> --dest=D:\\Backups [--time=03:30] [--now]
+        подключить сайт, проверить связь и (если её ещё нет) поставить задачу «gtsBackup»
+        в Планировщик от текущего пользователя: каждый день в --time (по умолчанию 03:30) и при входе
+        в Windows, пропущенный запуск — при первой возможности. --now — сразу снять первый бекап.
+        Любую настройку сайта можно задать тут же: --keep-full=8 --max-diff=6 --alert-days=3 …
 
   gtsbackup sites                         список сайтов из конфига
-  gtsbackup ping <имя>                    проверить связь и токен
+  gtsbackup ping <имя>                    проверить связь и токен, показать корень бекапа на сайте
+  gtsbackup check [--popup]               у кого нет удачного бекапа alert_days дней (--popup — окном)
+  gtsbackup scheduled                     то, что запускает задача: бекап всех сайтов, которым пора, и check
   gtsbackup backup <имя|all> [auto|full|diff] [--no-files] [--no-db]
         снять бекап. auto: полный, если его нет, он старше full_every_days
         или от него уже max_diff дифференциальных; иначе дифференциальный от последнего полного
@@ -90,12 +101,13 @@ gtsBackup client {$GLOBALS['CONFIG_FILE']}
   gtsbackup rotate [имя|all]              только ротация
   gtsbackup verify <имя> <номер>          прочитать архив и дамп до конца
   gtsbackup restore <имя> <номер> <папка> развернуть файлы (для дифф. — свой полный + он) и положить дамп
-  gtsbackup task [имя|all] <ЧЧ:ММ>        задача в Планировщике Windows: ежедневный backup auto
+  gtsbackup task [ЧЧ:ММ | remove]         задача Планировщика: показать, поставить/сменить время, удалить
 
 Номер бекапа — время его снятия, например 20261113-033000 (см. list).
 Папки: <dest>\\<сайт>\\<время полного>\\full и рядом diff-<время> — дифференциальные этого полного.
 
-Настройки — gtsbackup.json рядом со скриптом (или переменная GTSBACKUP_CONFIG).
+Настройки — gtsbackup.json рядом со скриптом (или переменная GTSBACKUP_CONFIG), у каждого сайта свои:
+блок "sites": { "<имя>": { url, token, dest, keep_full, max_diff, … } }.
 Код выхода: 0 — успех, 1 — ошибка.
 
 TXT;
@@ -151,25 +163,37 @@ function cmd_add($args, $opts)
     if (!preg_match('~\.php$~i', $url)) $url = rtrim($url, '/') . '/assets/components/gtsbackup/action.php';
     $c = cfg_load();
     $c['sites'] = (array)$c['sites'];
-    $site = isset($c['sites'][$name]) ? $c['sites'][$name] : [];
+    $defaults = (array)(isset($c['defaults']) ? $c['defaults'] : []);
+    $site = isset($c['sites'][$name]) ? $c['sites'][$name] : ['added' => date('c')];
     $site['url'] = $url;
     $site['token'] = $token;
-    if (!empty($opts['dest'])) $site['dest'] = $opts['dest'];
+    if (!empty($opts['dest']) && $opts['dest'] !== true) $site['dest'] = $opts['dest'];
+    if (empty($site['dest'])) $site['dest'] = isset($c['dest']) ? $c['dest'] : __DIR__ . DIRECTORY_SEPARATOR . 'backups';
+    // все настройки сайта — явно в его блоке: видно и правится по каждому сайту отдельно
+    foreach ($GLOBALS['DEFAULTS'] as $k => $v) {
+        if (isset($opts[$k]) && $opts[$k] !== true) $site[$k] = is_bool($v) ? in_array(strtolower($opts[$k]), ['1', 'true', 'yes'], true) : (is_int($v) ? (int)$opts[$k] : $opts[$k]);
+        elseif (!array_key_exists($k, $site)) $site[$k] = array_key_exists($k, $defaults) ? $defaults[$k] : $v;
+    }
     $c['sites'][$name] = $site;
-    if (empty($c['defaults'])) $c['defaults'] = new stdClass();
+    unset($c['defaults'], $c['dest']); // всё — в блоке сайта
+    $time = (!empty($opts['time']) && $opts['time'] !== true) ? $opts['time'] : (isset($c['task_time']) ? $c['task_time'] : GB_TASK_TIME);
+    $c['task_time'] = $time;
     cfg_save($c);
     save_php_path();
-    echo "Сайт «{$name}» записан в {$GLOBALS['CONFIG_FILE']}\n";
+    echo "Сайт «{$name}» записан в {$GLOBALS['CONFIG_FILE']} (его настройки — в блоке sites.{$name})\n";
     if (stripos($url, 'http://') === 0) echo "⚠ HTTP: токен и бекап идут открытым текстом. Используйте только в своей сети.\n";
     cmd_ping([$name]);
     $s = site_cfg($name);
-    echo "Бекапы: {$s['dir']}\n";
-    if (!empty($opts['time']) && $opts['time'] !== true) install_task('all', $opts['time']);
+    echo "Бекапы сохраняются в: {$s['dir']}\n"
+        . "Хранится: {$s['keep_full']} цепочки (полный + до {$s['max_diff']} дифф.), полный не реже раза в {$s['full_every_days']} дн.;"
+        . " окно-предупреждение, если нет удачного бекапа {$s['alert_days']} дн.\n";
+    if (empty($opts['no_task']) && (!empty($opts['time']) || !task_exists())) install_task($time);
+    elseif (task_exists()) echo "Задача «" . GB_TASK . "» уже стоит — бекапит и этот сайт (gtsbackup task — подробности).\n";
     if (!empty($opts['now'])) {
         echo "\nПервый бекап…\n";
         backup_site($name, 'auto', $opts);
-    } elseif (empty($opts['time'])) {
-        echo "\nДальше: gtsbackup.cmd task 03:30 — ежедневный бекап, или gtsbackup.cmd backup {$name} — снять сейчас.\n";
+    } else {
+        echo "\nСнять первый бекап сейчас: gtsbackup.cmd backup {$name}\n";
     }
     return 0;
 }
@@ -187,7 +211,8 @@ function cmd_ping($args)
     $r = api($s, 'ping');
     $d = $r['data'];
     echo "OK: {$d['site_name']} ({$d['http_host']}), gtsBackup {$d['version']}, PHP {$d['php']}, токен «{$d['token']}»\n"
-        . "   база: {$d['db_method']}, шаг {$d['step_time']} с, источники: " . implode(', ', array_map(function ($x) { return $x === '' ? 'корень' : $x; }, $d['sources'])) . "\n";
+        . "   с сайта бекапится: " . roots_text($d) . "\n"
+        . "   база: {$d['db_method']}, шаг упаковки {$d['step_time']} с\n";
     if ((int)$d['protocol'] !== GB_PROTOCOL) echo "⚠ Версия протокола сайта {$d['protocol']}, клиента " . GB_PROTOCOL . "\n";
     return 0;
 }
@@ -254,6 +279,7 @@ function backup_site($name, $mode, $opts)
     mkdir($part, 0750, true);
     $info = [
         'type' => $type, 'id' => $stamp, 'created' => date('c'), 'site' => $ping['data']['http_host'],
+        'roots' => isset($ping['data']['roots']) ? $ping['data']['roots'] : null,
         'client' => GB_CLIENT_VERSION, 'files' => null, 'db' => null,
     ];
 
@@ -469,6 +495,13 @@ function cmd_list($args)
         $dbs = db_only($s);
         $total = dir_size_rec($s['dir']);
         echo "\n{$name} — {$s['dir']}  (всего " . human($total) . ")\n";
+        $lastB = null;
+        foreach ($chains as $c) foreach (array_merge([$c['full']], $c['diffs']) as $b) if (!empty($b['info']['roots'])) $lastB = $b;
+        if ($lastB) echo '  с сайта бекапится: ' . roots_text($lastB['info']) . "\n";
+        $ls = last_success($s);
+        $ld = $ls ? floor((time() - $ls) / 86400) : null;
+        echo '  последний удачный бекап: ' . ($ls ? date('d.m.Y H:i', $ls) . " ({$ld} дн. назад)" : 'нет')
+            . (($s['alert_days'] > 0 && (!$ls || $ld >= $s['alert_days'])) ? "  ⚠ ПРОПУСК — больше alert_days = {$s['alert_days']}" : '') . "\n";
         echo '  хранится цепочек: ' . count($chains) . " из {$s['keep_full']} (keep_full), "
             . "в цепочке до {$s['max_diff']} дифф. (max_diff), полный не реже раза в {$s['full_every_days']} дн.\n";
         $tmp = null;
@@ -611,59 +644,297 @@ function cmd_restore($args)
 //  Планировщик Windows
 // ════════════════════════════════════════════════════════════════════════════
 
-/** task [имя|all] ЧЧ:ММ — ежедневная задача «backup … auto». */
+/**
+ * Задача «gtsBackup» — всегда от текущего пользователя (прав администратора не нужно):
+ *  - каждый день в task_time и при входе в Windows (через 5 минут);
+ *  - пропущенный запуск (компьютер был выключен) — при первой возможности;
+ *  - окно консоли скрыто (запуск через gtsbackup-task.vbs);
+ *  - действие — «scheduled»: бекап сайтов, которым пора, и проверка пропусков с окном-предупреждением.
+ */
 function cmd_task($args)
 {
-    $time = null;
-    $target = 'all';
-    foreach ($args as $a) {
-        if (preg_match('/^\d{1,2}:\d{2}$/', $a)) $time = $a;
-        else $target = $a;
+    $a = isset($args[0]) ? strtolower($args[0]) : '';
+    if ($a === 'remove' || $a === 'delete') {
+        if (!is_windows()) { echo "Удалите строку gtsbackup из crontab -e\n"; return 0; }
+        exec('schtasks /Delete /TN "' . GB_TASK . '" /F 2>&1', $o, $code);
+        echo $code === 0 ? "Задача «" . GB_TASK . "» удалена\n" : trim(implode(' ', $o)) . "\n";
+        return $code;
     }
-    if (!$time) gb_die('gtsbackup task [имя|all] ЧЧ:ММ');
-    return install_task($target, $time);
+    if ($a !== '') {
+        if (!preg_match('/^\d{1,2}:\d{2}$/', $a)) gb_die('gtsbackup task [ЧЧ:ММ | remove]');
+        $c = cfg_load();
+        $c['task_time'] = $a;
+        cfg_save($c);
+        return install_task($a);
+    }
+    if (!is_windows()) { echo "Расписание в Linux/macOS — cron, см. help\n"; return 0; }
+    exec('schtasks /Query /TN "' . GB_TASK . '" /V /FO LIST 2>&1', $o, $code);
+    if ($code !== 0) { echo "Задачи «" . GB_TASK . "» нет. Поставить: gtsbackup.cmd task 03:30\n"; return 1; }
+    echo implode("\n", array_map(function ($l) { return to_utf8($l); }, $o)) . "\n";
+    return 0;
 }
 
-/** Запомнить php.exe, которым запущен клиент: Планировщик (SYSTEM) не видит PATH и переменные пользователя. */
+function is_windows()
+{
+    return stripos(PHP_OS, 'WIN') === 0;
+}
+
+/** Вывод консольных программ Windows — в OEM-кодировке (cp866). */
+function to_utf8($s)
+{
+    if (preg_match('//u', $s)) return $s;
+    if (function_exists('mb_convert_encoding')) return mb_convert_encoding($s, 'UTF-8', 'CP866');
+    if (function_exists('iconv')) return (string)@iconv('CP866', 'UTF-8//IGNORE', $s);
+    return $s;
+}
+
+/** Запомнить php.exe, которым запущен клиент: задача Планировщика не видит переменные консоли. */
 function save_php_path()
 {
     if (PHP_BINARY) @file_put_contents(__DIR__ . DIRECTORY_SEPARATOR . 'php.path', PHP_BINARY);
 }
 
-function is_windows_admin()
+function task_exists()
 {
-    exec('net session >nul 2>&1', $o, $code);
+    if (!is_windows()) return true; // в Linux расписание ставит человек (cron)
+    exec('schtasks /Query /TN "' . GB_TASK . '" >nul 2>&1', $o, $code);
     return $code === 0;
 }
 
-function install_task($target, $time)
+function install_task($time)
 {
-    if (stripos(PHP_OS, 'WIN') !== 0) {
-        echo "Планировщик есть только в Windows. В Linux/macOS добавьте в cron:\n"
-            . '  30 3 * * * ' . PHP_BINARY . ' ' . __FILE__ . " backup all auto\n";
+    if (!is_windows()) {
+        echo "Планировщик Windows недоступен. Добавьте в crontab -e:\n"
+            . '  30 3 * * * ' . PHP_BINARY . ' ' . __FILE__ . " scheduled\n";
         return 0;
     }
-    list($h, $m) = explode(':', $time);
-    $time = sprintf('%02d:%02d', $h, $m);
+    if (!preg_match('/^(\d{1,2}):(\d{2})$/', $time, $m) || $m[1] > 23 || $m[2] > 59) gb_die("Время — ЧЧ:ММ, а не «{$time}»");
+    $time = sprintf('%02d:%02d', $m[1], $m[2]);
     save_php_path();
-    $admin = is_windows_admin();
-    $tn = 'gtsBackup' . ($target === 'all' ? '' : ' ' . $target);
-    $tr = '\"' . __DIR__ . '\gtsbackup.cmd\" backup ' . $target . ' auto';
-    if (strlen($tr) > 261) gb_die('Слишком длинный путь к клиенту для Планировщика — перенесите папку ближе к корню диска, например C:\gtsBackup');
-    $line = 'schtasks /Create /F /SC DAILY /ST ' . $time . ' /TN "' . $tn . '" /TR "' . $tr . '"' . ($admin ? ' /RU SYSTEM /RL HIGHEST' : '');
-    exec($line . ' 2>&1', $out, $code);
-    if ($code !== 0) gb_die('schtasks: ' . trim(implode(' ', $out)));
-    echo "\nЗадача «{$tn}» в Планировщике: каждый день в {$time} — backup {$target} auto.\n";
-    if ($admin) {
-        echo "  Запуск от SYSTEM — работает без входа в Windows. Папка бекапов должна быть на локальном диске\n"
-            . "  (сетевой диск SYSTEM не видит).\n";
-    } else {
-        echo "  ⚠ Консоль не от администратора — задача создана от вашего пользователя и запустится,\n"
-            . "  только когда вы вошли в Windows. Чтобы работала всегда: откройте консоль «от имени\n"
-            . "  администратора» и повторите: gtsbackup.cmd task {$target} {$time}\n";
-    }
-    echo "  Запустить сейчас: schtasks /Run /TN \"{$tn}\"   Лог: <папка бекапов>\\<сайт>\\gtsbackup.log\n";
+
+    $dir = __DIR__;
+    $user = getenv('USERDOMAIN') ? getenv('USERDOMAIN') . '\\' . getenv('USERNAME') : getenv('USERNAME');
+    // Запуск без окна консоли: wscript запускает cmd скрыто и ждёт его. Предупреждение показывает
+    // сам wscript (его Планировщик запускает видимым): окна процессов из скрытой цепочки Windows не показывает.
+    $vbs = $dir . '\\gtsbackup-task.vbs';
+    $vbsText = "' gtsBackup: запуск задачи Планировщика без окна консоли (создан командой task)\r\n"
+        . "Set sh = CreateObject(\"WScript.Shell\")\r\n"
+        . "sh.Environment(\"PROCESS\")(\"GTSBACKUP_TASK\") = \"1\"\r\n"
+        . "rc = sh.Run(\"\"\"" . str_replace('"', '""', $dir . '\\gtsbackup.cmd') . "\"\" scheduled\", 0, True)\r\n"
+        . alert_vbs_code()
+        . "WScript.Quit rc\r\n";
+    file_put_contents($vbs, "\xFF\xFE" . utf16le($vbsText));
+
+    $x = function ($s) { return htmlspecialchars($s, ENT_XML1 | ENT_QUOTES, 'UTF-8'); };
+    $xml = '<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo><Description>' . $x('gtsBackup: бекап сайтов (' . $dir . ')') . '</Description></RegistrationInfo>
+  <Triggers>
+    <CalendarTrigger>
+      <StartBoundary>' . date('Y-m-d') . 'T' . $time . ':00</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay>
+    </CalendarTrigger>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>' . $x($user) . '</UserId>
+      <Delay>PT5M</Delay>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>' . $x($user) . '</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings><StopOnIdleEnd>false</StopOnIdleEnd><RestartOnIdle>false</RestartOnIdle></IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <ExecutionTimeLimit>PT12H</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>wscript.exe</Command>
+      <Arguments>' . $x('"' . $vbs . '"') . '</Arguments>
+      <WorkingDirectory>' . $x($dir) . '</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>
+';
+    $xmlFile = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'gtsbackup-task.xml';
+    file_put_contents($xmlFile, "\xFF\xFE" . utf16le($xml));
+    exec('schtasks /Create /F /TN "' . GB_TASK . '" /XML "' . $xmlFile . '" 2>&1', $out, $code);
+    @unlink($xmlFile);
+    if ($code !== 0) gb_die('schtasks: ' . to_utf8(trim(implode(' ', $out))));
+    echo "\nЗадача «" . GB_TASK . "» в Планировщике (от пользователя {$user}):\n"
+        . "  каждый день в {$time} и при входе в Windows; если компьютер был выключен — при первой возможности.\n"
+        . "  Бекапит все сайты из настроек, которым пора (удачный бекап старше min_interval_hours),\n"
+        . "  и показывает окно, если у сайта нет удачного бекапа alert_days дней.\n"
+        . "  Запустить сейчас: schtasks /Run /TN " . GB_TASK . "    Убрать: gtsbackup.cmd task remove\n";
     return 0;
+}
+
+/** UTF-8 → UTF-16LE без зависимости от mbstring/iconv. */
+function utf16le($s)
+{
+    if (function_exists('mb_convert_encoding')) return mb_convert_encoding($s, 'UTF-16LE', 'UTF-8');
+    if (function_exists('iconv')) return iconv('UTF-8', 'UTF-16LE', $s);
+    $out = '';
+    foreach (preg_split('//u', $s, -1, PREG_SPLIT_NO_EMPTY) as $ch) {
+        $b = array_values(unpack('C*', $ch));
+        switch (count($b)) {
+            case 1: $cp = $b[0]; break;
+            case 2: $cp = (($b[0] & 0x1F) << 6) | ($b[1] & 0x3F); break;
+            case 3: $cp = (($b[0] & 0x0F) << 12) | (($b[1] & 0x3F) << 6) | ($b[2] & 0x3F); break;
+            default: $cp = (($b[0] & 0x07) << 18) | (($b[1] & 0x3F) << 12) | (($b[2] & 0x3F) << 6) | ($b[3] & 0x3F);
+        }
+        if ($cp > 0xFFFF) { $cp -= 0x10000; $out .= pack('v', 0xD800 | ($cp >> 10)) . pack('v', 0xDC00 | ($cp & 0x3FF)); }
+        else $out .= pack('v', $cp);
+    }
+    return $out;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Плановый запуск и проверка пропусков
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Время последнего удачного бекапа сайта (любого вида) или null. */
+function last_success($s)
+{
+    $t = null;
+    foreach (chains($s) as $c) {
+        foreach (array_merge($c['full'] ? [$c['full']] : [], $c['diffs']) as $b) {
+            $ts = strtotime($b['info']['created']);
+            if ($ts && $ts > $t) $t = $ts;
+        }
+    }
+    foreach (db_only($s) as $b) {
+        $ts = strtotime($b['info']['created']);
+        if ($ts && $ts > $t) $t = $ts;
+    }
+    return $t;
+}
+
+/** scheduled: то, что запускает задача — по времени и при входе в Windows. */
+function cmd_scheduled()
+{
+    $fail = 0;
+    foreach (site_names('all') as $name) {
+        try {
+            $s = site_cfg($name);
+            $last = last_success($s);
+            if ($last && time() - $last < $s['min_interval_hours'] * 3600) {
+                gb_log("[{$name}] плановый запуск: удачный бекап " . date('d.m.Y H:i', $last) . " — свежее {$s['min_interval_hours']} ч, пропускаю");
+                continue;
+            }
+            backup_site($name, 'auto', []);
+        } catch (Throwable $e) {
+            gb_log("[{$name}] ОШИБКА: " . $e->getMessage());
+            $fail++;
+        }
+    }
+    $stale = stale_sites();
+    if ($stale) notify("Бекапы сайтов не делаются:\n\n" . implode("\n", $stale)
+        . "\n\nЛог: <папка бекапов>\\<сайт>\\gtsbackup.log\nПроверить: gtsbackup.cmd check");
+    return ($fail || $stale) ? 1 : 0;
+}
+
+/** Сайты без удачного бекапа alert_days дней — строки для сообщения. */
+function stale_sites()
+{
+    $out = [];
+    foreach (site_names('all') as $name) {
+        $s = site_cfg($name);
+        if ((int)$s['alert_days'] <= 0) continue;
+        $last = last_success($s);
+        $since = $last ?: (isset($s['added']) ? strtotime($s['added']) : null);
+        if (!$since) continue;
+        $days = floor((time() - $since) / 86400);
+        if ($days < $s['alert_days']) continue;
+        $out[] = $last
+            ? "• {$name}: последний удачный бекап " . date('d.m.Y H:i', $last) . " — {$days} дн. назад"
+            : "• {$name}: ни одного удачного бекапа за {$days} дн. с подключения";
+        gb_log("[{$name}] ⚠ нет удачного бекапа {$days} дн. (alert_days = {$s['alert_days']})");
+    }
+    return $out;
+}
+
+function cmd_check($opts)
+{
+    $bad = 0;
+    foreach (site_names('all') as $name) {
+        $s = site_cfg($name);
+        $last = last_success($s);
+        $days = $last ? floor((time() - $last) / 86400) : null;
+        $ok = $last && ($s['alert_days'] <= 0 || $days < $s['alert_days']);
+        if (!$ok) $bad++;
+        echo str_pad($name, 24) . ($last ? 'последний удачный ' . date('d.m.Y H:i', $last) . " ({$days} дн.)" : 'удачных бекапов нет')
+            . ($ok ? '  — OK' : "  — ПРОПУСК (alert_days = {$s['alert_days']})") . "\n";
+    }
+    if (!is_windows() || task_exists()) echo "задача «" . GB_TASK . "»: есть\n";
+    else { echo "задача «" . GB_TASK . "»: НЕТ — бекапы сами не делаются (gtsbackup.cmd task 03:30)\n"; $bad++; }
+    if ($bad && !empty($opts['popup'])) {
+        $stale = stale_sites();
+        notify("Бекапы сайтов не делаются:\n\n" . ($stale ? implode("\n", $stale) : 'нет задачи в Планировщике'));
+    }
+    return $bad ? 1 : 0;
+}
+
+/**
+ * Окно-предупреждение (Windows). Текст пишется в gtsbackup-alert.txt, показывает его VBScript MsgBox
+ * поверх всех окон: в задаче — сам gtsbackup-task.vbs после работы клиента, из консоли — gtsbackup-alert.vbs.
+ * В Linux — только stderr.
+ */
+function notify($text)
+{
+    fwrite(STDERR, $text . "\n");
+    if (!is_windows()) return;
+    $file = __DIR__ . '\\gtsbackup-alert.txt';
+    file_put_contents($file, "\xFF\xFE" . utf16le(str_replace("\n", "\r\n", mb_substr_safe($text, 1500))));
+    if (getenv('GTSBACKUP_TASK')) return; // покажет gtsbackup-task.vbs, когда клиент закончит
+    $vbs = __DIR__ . '\\gtsbackup-alert.vbs';
+    file_put_contents($vbs, "\xFF\xFE" . utf16le(alert_vbs_code()));
+    pclose(popen('start "" wscript.exe //nologo "' . $vbs . '"', 'r'));
+}
+
+/** VBScript: показать и удалить gtsbackup-alert.txt, если он есть. */
+function alert_vbs_code()
+{
+    $p = str_replace('"', '""', __DIR__ . '\\gtsbackup-alert.txt');
+    return "Set fso = CreateObject(\"Scripting.FileSystemObject\")\r\n"
+        . "If fso.FileExists(\"{$p}\") Then\r\n"
+        . "  Set f = fso.OpenTextFile(\"{$p}\", 1, False, -1)\r\n"
+        . "  t = f.ReadAll\r\n"
+        . "  f.Close\r\n"
+        . "  fso.DeleteFile \"{$p}\"\r\n"
+        . "  MsgBox t, vbExclamation + vbSystemModal, \"gtsBackup\"\r\n"
+        . "End If\r\n";
+}
+
+function mb_substr_safe($s, $n)
+{
+    if (function_exists('mb_substr')) return mb_substr($s, 0, $n);
+    preg_match('/^.{0,' . (int)$n . '}/us', $s, $m);
+    return $m ? $m[0] : $s;
+}
+
+function roots_text($d)
+{
+    if (!empty($d['roots'])) {
+        $p = [];
+        foreach ($d['roots'] as $prefix => $path) $p[] = $prefix === '' ? "корень {$path}" : "core {$path} (в архиве {$prefix})";
+        return implode(' + ', $p);
+    }
+    return implode(', ', array_map(function ($x) { return $x === '' ? 'корень сайта' : $x; }, isset($d['sources']) ? $d['sources'] : []));
 }
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -1,23 +1,25 @@
 {
-    "dest": "D:/Backups",
-    "defaults": {
-        "files": true,
-        "db": true,
-        "mode": "auto",
-        "keep_full": 4,
-        "max_diff": 6,
-        "full_every_days": 7,
-        "keep_db_only": 14,
-        "verify": true,
-        "insecure": false,
-        "cacert": "",
-        "timeout": 900,
-        "retries": 5
-    },
+    "task_time": "03:30",
     "sites": {
         "example.com": {
+            "added": "2026-11-12T12:00:00+07:00",
             "url": "https://example.com/assets/components/gtsbackup/action.php",
-            "token": "gbk_…"
+            "token": "gbk_…",
+            "dest": "D:/Backups",
+            "files": true,
+            "db": true,
+            "mode": "auto",
+            "keep_full": 4,
+            "max_diff": 6,
+            "full_every_days": 7,
+            "keep_db_only": 14,
+            "alert_days": 2,
+            "min_interval_hours": 20,
+            "verify": true,
+            "insecure": false,
+            "cacert": "",
+            "timeout": 900,
+            "retries": 5
         }
     }
 }
