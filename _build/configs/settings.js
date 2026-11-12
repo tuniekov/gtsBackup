@@ -37,7 +37,7 @@ export default {
     // без «/» внутри — имя на любой глубине (node_modules/, *.tmp). «/» в конце — только папка.
     'exclude': {
         'xtype': 'textarea',
-        'value': "core/cache/\ncore/packages/_gtsbackup/\ncore/packages/_gtsdeploy_backup/\n.git/\nnode_modules/",
+        'value': "core/cache/\ncore/packages/_gtsbackup/\n.git/\nnode_modules/",
         'area': 'gtsbackup_files',
     },
     // Файлы больше этого размера (МБ) пропускаются. 0 — без ограничения.
@@ -78,7 +78,7 @@ export default {
         'value': 'auto',
         'area': 'gtsbackup_db',
     },
-    // Путь к mysqldump. Пусто — берётся gtsdeploy_mysqldump_bin, если есть, иначе mysqldump из PATH.
+    // Путь к mysqldump. Пусто — mysqldump из PATH.
     'mysqldump_bin': {
         'xtype': 'textfield',
         'value': '',

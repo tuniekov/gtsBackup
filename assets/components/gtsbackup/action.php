@@ -1,7 +1,8 @@
 <?php
 /**
  * gtsBackup — эндпоинт cmd-клиента. Без MODX-сессии, авторизация — токен (таблица gbToken).
- * Действия: ping, create, step, download, finish, cancel, db. Описание — docs/protocol.md.
+ * Действия: ping, create, step, download, finish, cancel, db.
+ * Описание — core/components/gtsbackup/docs/protocol.md.
  */
 @set_time_limit(0);
 @ini_set('memory_limit', '1024M');

@@ -1,7 +1,9 @@
 # Протокол gtsBackup (версия 1)
 
-Обмен между клиентом (`client/gtsbackup.php`) и сайтом с пакетом gtsBackup. Подходит и для своего
-клиента на другом языке: всё, что нужно, — HTTP POST и чтение tar.gz.
+Обмен между клиентом и сайтом с пакетом gtsBackup. Клиент из комплекта лежит в пакете в
+`core/components/gtsbackup/client/` (`gtsbackup.php`, запуск в Windows — `gtsbackup.cmd`). Этот документ —
+`core/components/gtsbackup/docs/protocol.md`. По нему можно написать и свой клиент на любом языке:
+всё, что нужно, — HTTP POST и чтение tar.gz.
 
 ## Эндпоинт и авторизация
 

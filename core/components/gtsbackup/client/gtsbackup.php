@@ -3,11 +3,15 @@
  * gtsBackup — клиент на локальном компьютере. Забирает бекап с сайта по HTTP/HTTPS (curl),
  * хранит полные и дифференциальные бекапы, крутит ротацию, проверяет и восстанавливает.
  *
- * Запуск — через gtsbackup.cmd. Команды: php gtsbackup.php help
- * Обмен с сайтом — docs/protocol.md. PHP 7.4+, расширения curl и zlib.
+ * Поставляется в пакете: core/components/gtsbackup/client/ — папку копируют на компьютер для бекапов.
+ * Запуск — через gtsbackup.cmd (Windows) или php gtsbackup.php (Linux, macOS). Команды: help
+ * Обмен с сайтом — core/components/gtsbackup/docs/protocol.md. PHP 7.4+, расширения curl и zlib.
  */
 
-const GB_CLIENT_VERSION = '1.0.0';
+// Только командная строка: на сайте файл лежит в core и через веб ничего делать не должен.
+if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
+
+const GB_CLIENT_VERSION = '1.0.1';
 const GB_PROTOCOL = 1;
 
 error_reporting(E_ALL);

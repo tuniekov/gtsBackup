@@ -15,8 +15,8 @@
         "retries": 5
     },
     "sites": {
-        "office.vk-24.ru": {
-            "url": "https://office.vk-24.ru/assets/components/gtsbackup/action.php",
+        "example.com": {
+            "url": "https://example.com/assets/components/gtsbackup/action.php",
             "token": "gbk_…"
         }
     }

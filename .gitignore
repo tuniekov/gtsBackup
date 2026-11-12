@@ -24,6 +24,6 @@ dist-ssr
 *.sw?
 
 # клиент: локальный конфиг с токенами и бекапы
-client/gtsbackup.json
-client/backups/
-client/php/
+core/components/gtsbackup/client/gtsbackup.json
+core/components/gtsbackup/client/backups/
+core/components/gtsbackup/client/php/

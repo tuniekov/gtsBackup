@@ -8,11 +8,12 @@
  *    собирает архив файлов (полный / дифференциальный) по шагам, скачивает его и
  *    забирает дамп базы потоком.
  *
- * Описание обмена — docs/protocol.md. Код совместим с PHP 7.4.
+ * Описание обмена — core/components/gtsbackup/docs/protocol.md,
+ * клиент — core/components/gtsbackup/client/. Код совместим с PHP 7.4.
  */
 class gtsBackup
 {
-    const VERSION = '1.0.0';
+    const VERSION = '1.0.1';
     const PROTOCOL = 1;
 
     /** @var modX */
@@ -758,7 +759,6 @@ class gtsBackup
     protected function mysqldumpBin()
     {
         $bin = trim((string)$this->opt('mysqldump_bin', ''));
-        if ($bin === '') $bin = trim((string)$this->modx->getOption('gtsdeploy_mysqldump_bin', null, ''));
         return $bin !== '' ? $bin : 'mysqldump';
     }
 
@@ -865,7 +865,7 @@ class gtsBackup
         return $code === 0 ? '' : 'mysqldump код ' . $code . ': ' . trim(substr($stderr, 0, 2000));
     }
 
-    /** Кросс-платформенный запуск из массива аргументов (как в gtsDeploy). */
+    /** Кросс-платформенный запуск из массива аргументов (Windows — без cmd.exe, *nix — escapeshellarg). */
     public function procStart($args)
     {
         if (stripos(PHP_OS, 'WIN') === 0) {
