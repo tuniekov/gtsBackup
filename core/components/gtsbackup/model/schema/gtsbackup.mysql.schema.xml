@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<model package="gtsbackup" baseClass="xPDOObject" platform="mysql" defaultEngine="InnoDB" phpdoc-package="gtsbackup"
+       version="1.1">
+    <!-- Токены доступа cmd-клиента. Бессрочные, право одно — снять бекап.
+         В базе только sha256 токена: сам токен показывается один раз при создании. -->
+    <object class="gbToken" table="gtsbackup_tokens" extends="xPDOSimpleObject">
+        <field key="name" dbtype="varchar" precision="191" phptype="string" null="false" default=""/>
+        <field key="token_hash" dbtype="char" precision="64" phptype="string" null="false" default=""/>
+        <field key="token_hint" dbtype="varchar" precision="32" phptype="string" null="false" default=""/>
+        <field key="active" dbtype="tinyint" precision="1" attributes="unsigned" phptype="integer" null="false" default="1"/>
+        <field key="comment" dbtype="text" phptype="string" null="true"/>
+        <field key="createdon" dbtype="datetime" phptype="datetime" null="true"/>
+        <field key="createdby" dbtype="int" precision="10" attributes="unsigned" phptype="integer" null="false" default="0"/>
+        <field key="last_used" dbtype="datetime" phptype="datetime" null="true"/>
+        <field key="last_ip" dbtype="varchar" precision="45" phptype="string" null="false" default=""/>
+        <field key="used_count" dbtype="int" precision="10" attributes="unsigned" phptype="integer" null="false" default="0"/>
+
+        <index alias="token_hash" name="token_hash" primary="false" unique="true" type="BTREE">
+            <column key="token_hash" length="" collation="A" null="false"/>
+        </index>
+        <index alias="active" name="active" primary="false" unique="false" type="BTREE">
+            <column key="active" length="" collation="A" null="false"/>
+        </index>
+    </object>
+
+    <!-- Журнал бекапов: одна строка на задание файлов или дамп базы. -->
+    <object class="gbLog" table="gtsbackup_log" extends="xPDOSimpleObject">
+        <field key="token_id" dbtype="int" precision="10" attributes="unsigned" phptype="integer" null="false" default="0"/>
+        <field key="kind" dbtype="varchar" precision="16" phptype="string" null="false" default=""/>
+        <field key="mode" dbtype="varchar" precision="16" phptype="string" null="false" default=""/>
+        <field key="job" dbtype="varchar" precision="64" phptype="string" null="false" default=""/>
+        <field key="status" dbtype="varchar" precision="16" phptype="string" null="false" default=""/>
+        <field key="files" dbtype="int" precision="10" attributes="unsigned" phptype="integer" null="false" default="0"/>
+        <field key="size" dbtype="bigint" precision="20" attributes="unsigned" phptype="integer" null="false" default="0"/>
+        <field key="message" dbtype="text" phptype="string" null="true"/>
+        <field key="ip" dbtype="varchar" precision="45" phptype="string" null="false" default=""/>
+        <field key="createdon" dbtype="datetime" phptype="datetime" null="true"/>
+        <field key="finishedon" dbtype="datetime" phptype="datetime" null="true"/>
+
+        <index alias="token_id" name="token_id" primary="false" unique="false" type="BTREE">
+            <column key="token_id" length="" collation="A" null="false"/>
+        </index>
+        <index alias="job" name="job" primary="false" unique="false" type="BTREE">
+            <column key="job" length="" collation="A" null="false"/>
+        </index>
+        <index alias="createdon" name="createdon" primary="false" unique="false" type="BTREE">
+            <column key="createdon" length="" collation="A" null="false"/>
+        </index>
+    </object>
+</model>

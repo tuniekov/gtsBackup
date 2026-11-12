@@ -1,0 +1,23 @@
+{
+    "dest": "D:/Backups",
+    "defaults": {
+        "files": true,
+        "db": true,
+        "mode": "auto",
+        "keep_full": 4,
+        "max_diff": 6,
+        "full_every_days": 7,
+        "keep_db_only": 14,
+        "verify": true,
+        "insecure": false,
+        "cacert": "",
+        "timeout": 900,
+        "retries": 5
+    },
+    "sites": {
+        "office.vk-24.ru": {
+            "url": "https://office.vk-24.ru/assets/components/gtsbackup/action.php",
+            "token": "gbk_…"
+        }
+    }
+}
