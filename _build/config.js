@@ -1,9 +1,11 @@
 export default {
     name:"gtsBackup",
     name_lower:"gtsbackup",
-    version:"1.1.4",
+    version:"1.1.5",
     release:"beta",
     schema:true,
+    // рабочая папка на сайте сборки (архивы, манифесты) — не в пакет
+    exclude:["core/tmp"],
     assets:true,
     core:true,
     update:{

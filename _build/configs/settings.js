@@ -60,7 +60,7 @@ export default {
     // без «/» внутри — имя на любой глубине (node_modules/, *.tmp). «/» в конце — только папка.
     'exclude': {
         'xtype': 'textarea',
-        'value': "core/cache/\ncore/packages/_gtsbackup/\ncore/packages/_gtsdeploy_backup/\n.git/\nnode_modules/",
+        'value': "core/cache/\ncore/components/gtsbackup/tmp/\ncore/packages/_gtsdeploy_backup/\n.git/\nnode_modules/",
         'area': 'gtsbackup_files',
     },
     // Файлы больше этого размера (МБ) пропускаются. 0 — без ограничения.
@@ -69,7 +69,9 @@ export default {
         'value': 0,
         'area': 'gtsbackup_files',
     },
-    // Рабочая папка заданий (архивы до скачивания). Пусто — core/packages/_gtsbackup/.
+    // Рабочая папка (архивы до скачивания, манифесты полных бекапов, временные файлы).
+    // Пусто — core/components/gtsbackup/tmp/: внутри компонента, при удалении пакета удаляется вместе с ним
+    // (там только временное), обновление пакета её не трогает. Другой путь — если в core мало места под архив сайта.
     'tmp_path': {
         'xtype': 'textfield',
         'value': '',

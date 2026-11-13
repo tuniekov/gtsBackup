@@ -13,7 +13,7 @@
  */
 class gtsBackup
 {
-    const VERSION = '1.1.4';
+    const VERSION = '1.1.5';
     const PROTOCOL = 1;
 
     /** @var modX */
@@ -165,9 +165,10 @@ class gtsBackup
             return $this->fail(500, 'На сервере нет ZipArchive. Заберите папку core/components/gtsbackup/client/ по FTP');
         }
         $dir = $this->config['corePath'] . 'client/';
-        $zipFile = tempnam(sys_get_temp_dir(), 'gtsbc');
+        $zipFile = $this->tmpFile('client');
         $zip = new ZipArchive();
-        $zip->open($zipFile, ZipArchive::OVERWRITE);
+        @unlink($zipFile); // ZipArchive создаёт файл сам; пустая заготовка для него — «не zip»
+        $zip->open($zipFile, ZipArchive::CREATE | ZipArchive::OVERWRITE);
         foreach (['gtsbackup.cmd', 'gtsbackup.ps1', 'gtsbackup.php', 'gtsbackup.example.json', 'protocol.md'] as $f) {
             if (file_exists($dir . $f)) $zip->addFile($dir . $f, 'gtsBackup/' . $f);
         }
@@ -241,21 +242,36 @@ class gtsBackup
      */
     protected function migrateSettings()
     {
-        if ((int)$this->opt('settings_v', 0) >= 2) return;
+        $cur = (int)$this->opt('settings_v', 0);
+        if ($cur >= 3) return;
         $ex = $this->modx->getObject('modSystemSetting', 'gtsbackup_exclude');
-        if ($ex && strpos($ex->get('value'), '_gtsdeploy_backup') === false) {
-            $ex->set('value', rtrim($ex->get('value')) . "\ncore/packages/_gtsdeploy_backup/");
-            $ex->save();
+        if ($ex) {
+            $val = (string)$ex->get('value');
+            // v2: дампы базы gtsDeploy
+            if ($cur < 2 && strpos($val, '_gtsdeploy_backup') === false) $val = rtrim($val) . "\ncore/packages/_gtsdeploy_backup/";
+            // v3: рабочая папка переехала в компонент
+            $val = str_replace('core/packages/_gtsbackup/', 'core/components/gtsbackup/tmp/', $val);
+            if ($val !== $ex->get('value')) { $ex->set('value', $val); $ex->save(); }
+        }
+        // v3: старая рабочая папка core/packages/_gtsbackup/ (до 1.1.5) — манифесты полных бекапов в новую, папку удалить.
+        // Только если рабочая папка не задана руками (тогда её выбрал администратор).
+        $old = MODX_CORE_PATH . 'packages/_gtsbackup/';
+        if (trim((string)$this->opt('tmp_path', '')) === '' && is_dir($old)) {
+            $mdir = $this->tmpDir() . 'manifests/';
+            foreach ((array)glob($old . 'manifests/*.jsonl.gz') as $f) {
+                if (!file_exists($mdir . basename($f))) @rename($f, $mdir . basename($f));
+            }
+            $this->rrmdir(rtrim($old, '/'));
         }
         $v = $this->modx->getObject('modSystemSetting', 'gtsbackup_settings_v');
         if (!$v) {
             $v = $this->modx->newObject('modSystemSetting');
             $v->fromArray(['key' => 'gtsbackup_settings_v', 'xtype' => 'numberfield', 'namespace' => 'gtsbackup', 'area' => 'gtsbackup_main'], '', true, true);
         }
-        $v->set('value', 2);
+        $v->set('value', 3);
         $v->save();
         $this->modx->cacheManager->refresh(['system_settings' => []]);
-        $this->modx->config['gtsbackup_settings_v'] = 2;
+        $this->modx->config['gtsbackup_settings_v'] = 3;
         if ($ex) $this->modx->config['gtsbackup_exclude'] = $ex->get('value');
         $this->excludes = null;
     }
@@ -331,16 +347,31 @@ class gtsBackup
 
     // ── рабочая папка и задания ─────────────────────────────────────────────
 
+    /**
+     * Рабочая папка: задания (архив до скачивания), манифесты полных бекапов, временные файлы.
+     * По умолчанию — внутри компонента (core/components/gtsbackup/tmp/): не выше корня сайта и не в чужих
+     * папках, работает при open_basedir; при удалении пакета удаляется вместе с ним (там только временное).
+     * gtsbackup_tmp_path — вынести в другое место (нужно место под архив сайта).
+     */
     public function tmpDir()
     {
         $dir = trim((string)$this->opt('tmp_path', ''));
-        if ($dir === '') $dir = MODX_CORE_PATH . 'packages/_gtsbackup/';
+        if ($dir === '') $dir = $this->config['corePath'] . 'tmp/';
         $dir = rtrim(str_replace('\\', '/', $dir), '/') . '/';
         if (!is_dir($dir)) @mkdir($dir, 0750, true);
         if (!file_exists($dir . '.htaccess')) @file_put_contents($dir . '.htaccess', "Require all denied\nDeny from all\n");
         if (!file_exists($dir . 'index.html')) @file_put_contents($dir . 'index.html', '');
         if (!is_dir($dir . 'manifests')) @mkdir($dir . 'manifests', 0750, true);
         return $dir;
+    }
+
+    /** Временный файл в рабочей папке (не в системной temp: её может закрыть open_basedir). */
+    protected function tmpFile($prefix)
+    {
+        $f = $this->tmpDir() . $prefix . '-' . bin2hex(random_bytes(8));
+        touch($f);
+        @chmod($f, 0600);
+        return $f;
     }
 
     protected function jobDir($job)
@@ -386,6 +417,10 @@ class gtsBackup
             $s = $this->loadState($d . '/');
             if ($s && !empty($s['log_id'])) $this->updateLog($s['log_id'], ['status' => 'abandoned', 'finishedon' => date('Y-m-d H:i:s')]);
             $this->rrmdir($d);
+        }
+        // временные файлы, оставшиеся от оборванных запросов (zip клиента, пароль для mysqldump, вывод ошибок)
+        foreach (['client', 'err', 'cred'] as $p) {
+            foreach ((array)glob($root . $p . '-*') as $f) if (is_file($f) && time() - filemtime($f) > 3600) @unlink($f);
         }
     }
 
@@ -1030,7 +1065,7 @@ class gtsBackup
         }
         // stderr — во временный файл, не в пайп: на Windows неблокирующее чтение пайпов не работает,
         // и чтение stderr в цикле вешает процесс, пока он пишет в stdout.
-        $errFile = tempnam(sys_get_temp_dir(), 'gtsbe');
+        $errFile = $this->tmpFile('err');
         $proc = @proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['file', $errFile, 'w']], $pipes, null, null, $opts);
         if (!is_resource($proc)) { @unlink($errFile); return false; }
         return ['proc' => $proc, 'pipes' => $pipes, 'errfile' => $errFile];
@@ -1052,7 +1087,7 @@ class gtsBackup
         $host = $cfg['host'];
         $port = '';
         if (preg_match('/^(.+):(\d+)$/', $host, $m)) { $host = $m[1]; $port = "port=\"{$m[2]}\"\n"; }
-        $f = tempnam(sys_get_temp_dir(), 'gtsb');
+        $f = $this->tmpFile('cred');
         file_put_contents($f, "[client]\nhost=\"{$host}\"\n{$port}user=\"{$cfg['user']}\"\npassword=\"" . addcslashes($cfg['pass'], '"\\') . "\"\n"
             . ($mysqldumpOpts ? "[mysqldump]\n" . implode("\n", $mysqldumpOpts) . "\n" : ''));
         @chmod($f, 0600);
