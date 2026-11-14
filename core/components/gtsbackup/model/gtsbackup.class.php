@@ -13,7 +13,7 @@
  */
 class gtsBackup
 {
-    const VERSION = '1.1.5';
+    const VERSION = '1.1.6';
     const PROTOCOL = 1;
 
     /** @var modX */
@@ -222,6 +222,7 @@ class gtsBackup
         }
         $this->touchToken();
         $this->cleanupJobs();
+        $this->cleanupLog();
 
         switch ($action) {
             case 'ping':     return $this->actPing();
@@ -422,6 +423,16 @@ class gtsBackup
         foreach (['client', 'err', 'cred'] as $p) {
             foreach ((array)glob($root . $p . '-*') as $f) if (is_file($f) && time() - filemtime($f) > 3600) @unlink($f);
         }
+    }
+
+    /** Ротация журнала: записи старше gtsbackup_log_days дней удаляются (0 — не удалять). */
+    protected function cleanupLog()
+    {
+        $days = (int)$this->opt('log_days', 90);
+        if ($days <= 0) return;
+        $t = $this->modx->getTableName('gbLog');
+        $stmt = $this->modx->prepare("DELETE FROM {$t} WHERE createdon < ?");
+        if ($stmt) $stmt->execute([date('Y-m-d H:i:s', time() - $days * 86400)]);
     }
 
     public function rrmdir($dir)

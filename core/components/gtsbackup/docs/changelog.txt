@@ -1,3 +1,7 @@
+gtsBackup 1.1.6-beta
+- Ротация журналов: gtsbackup.log клиента больше 1 МБ уходит в gtsbackup.log.1 (хранятся два файла);
+  журнал на сайте — записи старше gtsbackup_log_days (90) дней удаляются.
+
 gtsBackup 1.1.5-beta
 - Рабочая папка по умолчанию — core/components/gtsbackup/tmp/ (была core/packages/_gtsbackup/): файлы
   компонента только в его папках, работает при open_basedir. Временные файлы (zip клиента, пароль для

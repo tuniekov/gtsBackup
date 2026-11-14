@@ -13,7 +13,7 @@
 // Только командная строка: на сайте файл лежит в core и через веб ничего делать не должен.
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 
-const GB_CLIENT_VERSION = '1.1.4';
+const GB_CLIENT_VERSION = '1.1.6';
 const GB_PROTOCOL = 1;
 
 error_reporting(E_ALL);
@@ -1228,7 +1228,11 @@ function gb_log($msg)
 {
     $line = date('Y-m-d H:i:s') . ' ' . $msg;
     echo $line . "\n";
-    if (!empty($GLOBALS['LOG_FILE'])) @file_put_contents($GLOBALS['LOG_FILE'], $line . "\n", FILE_APPEND);
+    if (empty($GLOBALS['LOG_FILE'])) return;
+    $f = $GLOBALS['LOG_FILE'];
+    // ротация: больше 1 МБ — в gtsbackup.log.1 (прежний .1 удаляется), хранятся два файла
+    if (@filesize($f) > 1048576) { @unlink($f . '.1'); @rename($f, $f . '.1'); }
+    @file_put_contents($f, $line . "\n", FILE_APPEND);
 }
 
 function gb_die($msg)

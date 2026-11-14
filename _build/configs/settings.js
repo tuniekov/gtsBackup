@@ -89,6 +89,12 @@ export default {
         'value': 6,
         'area': 'gtsbackup_files',
     },
+    // Журнал бекапов (вкладка «Журнал»): записи старше стольких дней удаляются. 0 — хранить всё.
+    'log_days': {
+        'xtype': 'numberfield',
+        'value': 90,
+        'area': 'gtsbackup_main',
+    },
     // Брошенные задания (клиент не забрал архив) удаляются через столько часов.
     'job_ttl_hours': {
         'xtype': 'numberfield',

@@ -5,7 +5,7 @@
 # Обмен с сайтом — protocol.md рядом.
 
 $ErrorActionPreference = 'Stop'
-$Version = '1.1.4'
+$Version = '1.1.6'
 $Protocol = 1
 $TaskName = 'gtsBackup'
 $TaskTimeDefault = '03:30'
@@ -44,7 +44,18 @@ $Defaults = [ordered]@{
 function Log([string]$msg) {
     $line = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' ' + $msg
     Write-Host $line
-    if ($script:LogFile) { try { [IO.File]::AppendAllText($script:LogFile, $line + "`r`n", $Utf8) } catch {} }
+    if ($script:LogFile) {
+        try {
+            # ротация: больше 1 МБ — в gtsbackup.log.1 (прежний .1 удаляется), хранятся два файла
+            $fi = New-Object IO.FileInfo $script:LogFile
+            if ($fi.Exists -and $fi.Length -gt 1048576) {
+                $old = $script:LogFile + '.1'
+                if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Force }
+                Move-Item -LiteralPath $script:LogFile -Destination $old
+            }
+            [IO.File]::AppendAllText($script:LogFile, $line + "`r`n", $Utf8)
+        } catch {}
+    }
 }
 
 function Human([double]$b) {
