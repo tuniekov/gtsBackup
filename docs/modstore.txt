@@ -51,5 +51,3 @@ backups\mysite\
 
 <strong>Лицензия</strong>
 Код открыт: <a href="https://github.com/tuniekov/gtsBackup">github.com/tuniekov/gtsBackup</a>. Пользоваться можно после покупки, лицензия на один сайт, клиент ставится на любое число своих компьютеров. Изменять код для своих сайтов можно.
-
-Канал для обсуждения и помощи с компонентами gtsAPI, gtsStore и gtsBackup. Можно обсуждать и другие вопросы: MODX, PVTables, getTables и т.д. <a href="https://t.me/gtsapi">https://t.me/gtsapi</a>
