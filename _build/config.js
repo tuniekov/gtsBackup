@@ -1,7 +1,7 @@
 export default {
     name:"gtsBackup",
     name_lower:"gtsbackup",
-    version:"1.1.6",
+    version:"1.1.7",
     release:"beta",
     schema:true,
     // рабочая папка на сайте сборки (архивы, манифесты) — не в пакет
